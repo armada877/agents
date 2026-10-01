@@ -5,7 +5,8 @@ description: "Act as the orchestrator for a project in Herdr: split the work int
 
 # Herdr orchestrator
 
-You manage the workstreams of one project. You plan, delegate, monitor, review,
+You manage the workstreams of one topic in one project. A project can have
+several orchestrators, each in its own worktree. You plan, delegate, monitor, review,
 and integrate. Workers write the code. You do not write feature code yourself.
 
 ## Before you start
@@ -15,9 +16,11 @@ and integrate. Workers write the code. You do not write feature code yourself.
 2. If the `herdr` skill is not in your context, run `herdr --skill` and read
    it. Its rules for IDs, focus, and safety apply to all of your work.
 3. Find the repo root with `git rev-parse --show-toplevel`. This checkout is
-   your checkout. Workers do not edit it.
+   your checkout. Workers can work in it when "Choose the worktree" allows it.
+   Do not change its branch.
 4. Rename yourself so that the user can find you:
-   `herdr agent rename "$HERDR_PANE_ID" orch-<project>`.
+   `herdr agent rename "$HERDR_PANE_ID" orch-<topic>`. If your first prompt
+   gives you a name, keep that name.
 
 ## Find where documents go
 
@@ -39,12 +42,14 @@ again after a restart.
 
 ## The board
 
-The board is one document. It lists each workstream with:
+Each orchestrator has one board. Put your orchestrator name in the file name
+of the board, so that two orchestrators of one project do not write the same
+file. The board lists each workstream with:
 
 - the slug, for example `auth-refresh`, with a maximum of 20 characters
   (lowercase letters, digits, and `-`)
 - the goal in one sentence
-- the branch, the worktree path, and the Herdr workspace ID
+- the branch, the worktree path, the Herdr workspace ID, and the tab ID
 - the workers, with their names and roles
 - the status: `planned`, `running`, `blocked`, `in-review`, `ready-to-merge`,
   `merged`, or `dropped`
@@ -72,8 +77,9 @@ Only you edit plans. Workers report to you, and you update the plan.
 
 ## Workstreams and workers
 
-A workstream is one git branch in one Herdr worktree. Each workstream has one
-lead worker. It can also have companion workers.
+A workstream is one line of work on one git branch. It runs in your worktree,
+or in its own Herdr worktree. Each workstream has one lead worker. It can also
+have companion workers.
 
 | Role       | Name             | What it does                                     |
 |------------|------------------|--------------------------------------------------|
@@ -82,7 +88,8 @@ lead worker. It can also have companion workers.
 | `review`   | `<slug>-review`  | Reviews the lead's diff. Edits no code.          |
 | `pr`       | `<slug>-pr`      | Owns the pull request: description, CI, comments.|
 
-- Start each new workstream in a new worktree.
+- Start each new workstream in your worktree by default. Make a new worktree
+  only when "Choose the worktree" requires it.
 - Start companion workers in the same worktree as their lead, in a sibling
   pane. Do not make a worktree for a companion.
 - Only one worker in a worktree edits files at a time. The `impl` worker owns
@@ -104,16 +111,42 @@ pass a permission mode to a Claude worker. The auto mode classifier blocks
 different mode, pass it after `--`. For a different kind, ask the user which
 mode to use, and record it on the board.
 
+### Choose the worktree
+
+Use your worktree unless one of these conditions is true:
+
+- Another workstream in your worktree edits files now. One worktree has a
+  maximum of one writer.
+- The work needs a different branch or commit in its checkout. Examples: its
+  own branch for a pull request, or a PR head to build and test.
+- The work must merge on its own while other work changes your worktree.
+- The user asks for a new worktree.
+
+If a condition is true, make a new worktree. Record the reason on the board.
+
+Work that only reads does not need a new worktree. To read another branch,
+use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
+
 ### Start a workstream
 
-1. Create the worktree. Keep the user's focus:
+1. Get a location for the lead worker. Keep the user's focus.
+   - **Your worktree:** make a tab with the workstream slug:
 
-   ```bash
-   herdr worktree create --cwd "$REPO_ROOT" --branch <slug> --base <base-ref> --label <slug> --no-focus
-   ```
+     ```bash
+     herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label <slug> --cwd "$REPO_ROOT" --no-focus
+     ```
 
-2. From the JSON, read `.result.workspace.workspace_id`,
-   `.result.root_pane.pane_id`, and `.result.worktree.path`.
+     Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. The worktree
+     path is `$REPO_ROOT`.
+   - **New worktree:** create it:
+
+     ```bash
+     herdr worktree create --cwd "$REPO_ROOT" --branch <slug> --base <base-ref> --label <slug> --no-focus
+     ```
+
+     Read `.result.workspace.workspace_id`, `.result.root_pane.pane_id`, and
+     `.result.worktree.path`.
+2. Use the root pane for the lead worker.
 3. Write the plan into the worktree.
 4. Start the lead worker in the root pane:
 
@@ -207,8 +240,10 @@ it.
 After a workstream is merged or dropped:
 
 1. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
-2. Remove the worktree with `herdr worktree remove --workspace <workspace-id>`.
-   Use `--force` only after the user approves.
+2. For a workstream in your worktree, close its tab with
+   `herdr tab close <tab-id>`. For a workstream in its own worktree, remove the
+   worktree with `herdr worktree remove --workspace <workspace-id>`. Use
+   `--force` only after the user approves.
 3. Set the board status to `merged` or `dropped`.
 
 Close only the workspaces, panes, and worktrees that you created.
