@@ -98,10 +98,11 @@ the user names for that worker or that workstream, and record it on the board.
 
 ### Permission mode
 
-Start workers in auto mode unless the user names a different mode. For a
-Claude worker, pass `-- --permission-mode auto` to `herdr agent start`. For a
-different kind, use that agent's nearest mode, and record it on the board. If
-you do not know that mode, ask the user.
+Workers run in auto mode. The user's Claude Code settings turn it on, so do not
+pass a permission mode to a Claude worker. The auto mode classifier blocks
+`--permission-mode auto` when you start an agent. If the user names a
+different mode, pass it after `--`. For a different kind, ask the user which
+mode to use, and record it on the board.
 
 ### Start a workstream
 
@@ -117,7 +118,7 @@ you do not know that mode, ask the user.
 4. Start the lead worker in the root pane:
 
    ```bash
-   herdr agent start <slug>-impl --kind claude --pane <root-pane-id> -- --permission-mode auto
+   herdr agent start <slug>-impl --kind claude --pane <root-pane-id>
    ```
 
 5. Send the first prompt (see "Prompt a worker").
@@ -133,7 +134,7 @@ you do not know that mode, ask the user.
    ```
 
 2. Read `.result.pane.pane_id`, then start the agent with
-   `herdr agent start <slug>-<role> --kind claude --pane <new-pane-id> -- --permission-mode auto`.
+   `herdr agent start <slug>-<role> --kind claude --pane <new-pane-id>`.
 3. Send the first prompt and update the board.
 
 ### Prompt a worker
