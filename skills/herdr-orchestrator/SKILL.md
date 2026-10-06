@@ -9,6 +9,10 @@ You manage the workstreams of one topic in one project. A project can have
 several orchestrators, each in its own worktree. You plan, delegate, monitor, review,
 and integrate. Workers write the code. You do not write feature code yourself.
 
+Each repo has one supervisor, `sup-<repo>`. It owns the worktrees of the
+repo. Ask it for each new worktree. The user talks to you directly, so you
+rarely need the supervisor for other work.
+
 ## Before you start
 
 1. Run `test "${HERDR_ENV:-}" = 1`. If it fails, tell the user that you are
@@ -21,6 +25,15 @@ and integrate. Workers write the code. You do not write feature code yourself.
 4. Rename yourself so that the user can find you:
    `herdr agent rename "$HERDR_PANE_ID" orch-<topic>`. If your first prompt
    gives you a name, keep that name.
+5. Set your role token:
+
+   ```bash
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token orch=orch
+   ```
+
+6. Find your supervisor. Use the name from your first prompt. Otherwise look
+   for a live `sup-<repo>` agent in `herdr agent list`. Record the name on
+   the board. If no supervisor is live, tell the user.
 
 ## Find where documents go
 
@@ -122,7 +135,8 @@ Use your worktree unless one of these conditions is true:
 - The work must merge on its own while other work changes your worktree.
 - The user asks for a new worktree.
 
-If a condition is true, make a new worktree. Record the reason on the board.
+If a condition is true, ask your supervisor for a new worktree. Record the
+reason on the board.
 
 Work that only reads does not need a new worktree. To read another branch,
 use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
@@ -138,14 +152,22 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
 
      Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. The worktree
      path is `$REPO_ROOT`.
-   - **New worktree:** create it:
+   - **New worktree:** ask your supervisor for it:
+
+     ```bash
+     herdr agent prompt sup-<repo> "orch-<topic> asks for a worktree: slug <slug>, branch <slug>, base <base-ref>."
+     ```
+
+     The supervisor sends you the worktree path, the workspace ID, and the
+     root pane ID. If no supervisor is live, ask the user. With the user's
+     approval, make the worktree yourself:
 
      ```bash
      herdr worktree create --cwd "$REPO_ROOT" --branch <slug> --base <base-ref> --label <slug> --no-focus
      ```
 
-     Read `.result.workspace.workspace_id`, `.result.root_pane.pane_id`, and
-     `.result.worktree.path`.
+     Then read `.result.workspace.workspace_id`, `.result.root_pane.pane_id`,
+     and `.result.worktree.path`.
 2. Use the root pane for the lead worker.
 3. Write the plan into the worktree.
 4. Start the lead worker in the root pane:
@@ -235,15 +257,17 @@ You must ask the user before you:
 After the user approves, do the action yourself, or tell the `pr` worker to do
 it.
 
+If a merge or a deploy can conflict with the work of another orchestrator in
+the repo, you can ask your supervisor about the order.
+
 ## Clean up
 
 After a workstream is merged or dropped:
 
 1. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
 2. For a workstream in your worktree, close its tab with
-   `herdr tab close <tab-id>`. For a workstream in its own worktree, remove the
-   worktree with `herdr worktree remove --workspace <workspace-id>`. Use
-   `--force` only after the user approves.
+   `herdr tab close <tab-id>`. For a workstream in its own worktree, ask your
+   supervisor to remove the worktree. Give it the workspace ID.
 3. Set the board status to `merged` or `dropped`.
 
 Close only the workspaces, panes, and worktrees that you created.
