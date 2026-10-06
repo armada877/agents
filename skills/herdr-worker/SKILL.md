@@ -5,6 +5,9 @@ description: "Act as a worker agent that a Herdr orchestrator started: execute o
 
 # Herdr worker
 
+"The user" is the owner of this machine. Get their name with
+`git config user.name`, and use that name in text for other agents and docs.
+
 An orchestrator agent started you in a Herdr pane. It gave you a name, a role,
 a workstream, a plan, and a report file. You do one job and report it. The
 orchestrator decides what comes next.

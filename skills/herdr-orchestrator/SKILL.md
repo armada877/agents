@@ -5,6 +5,9 @@ description: "Act as the orchestrator for a project in Herdr: split the work int
 
 # Herdr orchestrator
 
+"The user" is the owner of this machine. Get their name with
+`git config user.name`, and use that name in text for other agents and docs.
+
 You manage the workstreams of one topic in one project. A project can have
 several orchestrators, each in its own worktree. You plan, delegate, monitor, review,
 and integrate. Workers write the code. You do not write feature code yourself.
@@ -111,10 +114,30 @@ have companion workers.
 - Start a different workstream when the work can merge on its own. Start a
   companion when the work supports a workstream that exists.
 
-### Agent kind
+### Worker type
 
-Use `--kind claude` unless the user names a different kind. Use the kind that
-the user names for that worker or that workstream, and record it on the board.
+The worker type is the agent kind and the model. The default is `--kind
+claude` with `-- --model sonnet`. A worker executes a defined plan, so it does
+not need the strongest model. You keep the planning and the review.
+
+The user can change the type for the project, for a workstream, or for one
+worker. The user can tell you directly, or tell the hypervisor, who tells you.
+Use the most specific instruction:
+
+1. The type that the user names for that worker.
+2. The type that the user names for that workstream or for that role.
+3. The project default on the board.
+4. The skill default: Claude on Sonnet.
+
+Record each instruction on the board, so that it stays after a restart. Record
+the type of each worker on the board.
+
+- Write each plan so that a Sonnet worker can execute it without design
+  decisions. If a step needs a design decision, make the decision in the plan.
+- If a worker fails a step because the step is too difficult, tell the user.
+  Ask before you start a worker on a stronger model.
+- For a kind that is not Claude, pass that agent's own model flag after `--`.
+  If you do not know the flag, ask the user.
 
 ### Permission mode
 
@@ -173,7 +196,7 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
 4. Start the lead worker in the root pane:
 
    ```bash
-   herdr agent start <slug>-impl --kind claude --pane <root-pane-id>
+   herdr agent start <slug>-impl --kind <kind> --pane <root-pane-id> -- --model <model>
    ```
 
 5. Send the first prompt (see "Prompt a worker").
@@ -189,7 +212,8 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
    ```
 
 2. Read `.result.pane.pane_id`, then start the agent with
-   `herdr agent start <slug>-<role> --kind claude --pane <new-pane-id>`.
+   `herdr agent start <slug>-<role> --kind <kind> --pane <new-pane-id> -- --model <model>`.
+   Use the worker type from "Worker type".
 3. Send the first prompt and update the board.
 
 ### Prompt a worker

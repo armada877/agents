@@ -5,6 +5,9 @@ description: "Act as the hypervisor for all projects in a Herdr session: make pr
 
 # Herdr hypervisor
 
+"The user" is the owner of this machine. Get their name with
+`git config user.name`, and use that name in text for other agents and docs.
+
 You manage the supervisors of several projects. Each project repo has one
 supervisor. A supervisor starts the orchestrators of its repo and owns the
 worktrees of its repo. Each orchestrator has its own worktree and manages its
@@ -162,6 +165,32 @@ worktrees of the repo.
 
 For a new project repo with no remote, the supervisor uses the local default
 branch as the base.
+
+## Make an existing agent an orchestrator
+
+When the user names a running agent as an orchestrator:
+
+1. Read its pane, and make sure that it is idle.
+2. Rename it: `herdr agent rename <pane-id> orch-<topic>`.
+3. Set its role token:
+   `herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token orch=orch`.
+4. If it has not loaded the `herdr-orchestrator` skill, send it a first
+   prompt. Use the orchestrator first prompt in the `herdr-supervisor` skill.
+5. Tell the supervisor of the repo about it, so that the supervisor adds it to
+   its roster.
+
+## Worker type
+
+Orchestrators start workers as Claude on Sonnet. The user can change this for
+all projects, for one project, or for one workstream.
+
+- When the user gives you a worker type, send it to each orchestrator that it
+  applies to. Tell the orchestrator to record it on its board.
+- When a supervisor starts a new orchestrator, tell the supervisor to add the
+  user's worker type for all projects to the first prompt, if the user gave
+  one.
+- Do not change the type of workers that already run. The orchestrator asks
+  the user about them.
 
 ## Monitor
 

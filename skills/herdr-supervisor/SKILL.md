@@ -5,6 +5,9 @@ description: "Act as the supervisor for one repo in Herdr: start the orchestrato
 
 # Herdr supervisor
 
+"The user" is the owner of this machine. Get their name with
+`git config user.name`, and use that name in text for other agents and docs.
+
 You supervise the orchestrators of one repo, and you own the worktrees of the
 repo. You do not plan project work, you do not write code, and you do not talk
 to workers.
