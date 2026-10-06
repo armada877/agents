@@ -49,7 +49,7 @@ of the agent in the agents pane.
 | Agent          | Token                   | Color in the agents pane |
 |----------------|-------------------------|--------------------------|
 | `hypervisor`   | `hypervisor=hypervisor` | bold magenta             |
-| `sup-<repo>`   | `sup=sup`               | bold green               |
+| `sup-<repo>`   | `sup=supervisor`        | bold green               |
 | `orch-<topic>` | `orch=orch`             | bold yellow              |
 
 `herdr agent list` shows the tokens in `.tokens`. Set a missing token with:

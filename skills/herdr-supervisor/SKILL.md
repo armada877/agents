@@ -34,7 +34,7 @@ worktree or for an order.
 5. Set your role token:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token sup=sup
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token sup=supervisor
    ```
 
 6. Make the roster.
