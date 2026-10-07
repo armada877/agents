@@ -28,10 +28,10 @@ rarely need the supervisor for other work.
 4. Rename yourself so that the user can find you:
    `herdr agent rename "$HERDR_PANE_ID" orch-<topic>`. If your first prompt
    gives you a name, keep that name.
-5. Set your role token:
+5. Set your role token and your rank token:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token orch=orch
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token orch=orch --token rank=3
    ```
 
 6. Find your supervisor. Use the name from your first prompt. Otherwise look

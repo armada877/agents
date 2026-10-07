@@ -38,24 +38,26 @@ background.
    `hypervisor`:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token hypervisor=hypervisor
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token hypervisor=hypervisor --token rank=1
    ```
 
-6. Make sure that each live supervisor and orchestrator has its role token.
-   See "Role tokens".
+6. Make sure that each live supervisor and orchestrator has its role token
+   and its rank token. See "Role tokens".
+7. Set the sort of the agents pane. See "Sort the agents pane".
 
 ## Role tokens
 
 Each agent sets its own role token when it starts. The token shows the role
 of the agent in the agents pane.
 
-| Agent          | Token                   | Color in the agents pane |
-|----------------|-------------------------|--------------------------|
-| `hypervisor`   | `hypervisor=hypervisor` | bold magenta             |
-| `sup-<repo>`   | `sup=supervisor`        | bold green               |
-| `orch-<topic>` | `orch=orch`             | bold yellow              |
+| Agent          | Role token              | Rank token | Color in the agents pane |
+|----------------|-------------------------|------------|--------------------------|
+| `hypervisor`   | `hypervisor=hypervisor` | `rank=1`   | bold magenta             |
+| `sup-<repo>`   | `sup=supervisor`        | `rank=2`   | bold green               |
+| `orch-<topic>` | `orch=orch`             | `rank=3`   | bold yellow              |
 
-`herdr agent list` shows the tokens in `.tokens`. Set a missing token with:
+Workers have no tokens. `herdr agent list` shows the tokens in `.tokens`.
+Set a missing token with:
 
 ```bash
 herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token <name>=<value>
@@ -71,6 +73,20 @@ rows = [["state_icon", "machine", "workspace", "tab"], [{ token = "$orch", fg = 
 
 If the block is missing, the tokens show no color. Ask the user before you
 change the config. After a change, run `herdr server reload-config`.
+
+## Sort the agents pane
+
+The agents pane puts the hypervisor first, then the supervisors, then the
+orchestrators, then the workers. It sorts by the `rank` token. An agent with
+no `rank` goes to the bottom. The CLI has no command for the sort, so send
+the request to the socket:
+
+```bash
+python3 -c 'import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect(os.environ["HERDR_SOCKET_PATH"]); s.sendall((json.dumps({"id":"hv:view","method":"agent.view.set","params":{"source":"herdr-roles","label":"roles first","sort":[{"field":{"token":"rank"}},{"field":"workspace_order"},{"field":"tab_order"},{"field":"pane_order"}]}})+"\n").encode()); print(s.recv(65536).decode())'
+```
+
+The result must contain `"active":true`. If a role agent is at the bottom of
+the agents pane, give it its `rank` token.
 
 ## See the current state
 
@@ -172,8 +188,8 @@ When the user names a running agent as an orchestrator:
 
 1. Read its pane, and make sure that it is idle.
 2. Rename it: `herdr agent rename <pane-id> orch-<topic>`.
-3. Set its role token:
-   `herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token orch=orch`.
+3. Set its role token and its rank token:
+   `herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token orch=orch --token rank=3`.
 4. If it has not loaded the `herdr-orchestrator` skill, send it a first
    prompt. Use the orchestrator first prompt in the `herdr-supervisor` skill.
 5. Tell the supervisor of the repo about it, so that the supervisor adds it to
