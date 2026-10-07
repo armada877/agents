@@ -34,10 +34,10 @@ worktree or for an order.
    and do not edit files in it.
 4. Rename yourself: `herdr agent rename "$HERDR_PANE_ID" sup-<repo>`. If your
    first prompt gives you a name, keep that name.
-5. Set your role token:
+5. Set your role token and your rank token:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token sup=supervisor
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token sup=supervisor --token rank=2
    ```
 
 6. Make the roster.
@@ -102,10 +102,10 @@ gets a new worktree. The main checkout is yours.
 6. If the start returns `agent_not_ready`, read the pane with
    `herdr agent read orch-<topic> --source visible --lines 40`. Show a folder
    trust prompt to the user. Do not answer it yourself.
-7. Set the role token of the new pane:
+7. Set the role token and the rank token of the new pane:
 
    ```bash
-   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent claude --token orch=orch
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent claude --token orch=orch --token rank=3
    ```
 
 8. When the agent is `idle`, send the first prompt.
