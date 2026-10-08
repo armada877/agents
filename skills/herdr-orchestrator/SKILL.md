@@ -12,9 +12,12 @@ You manage the workstreams of one topic in one project. A project can have
 several orchestrators, each in its own worktree. You plan, delegate, monitor, review,
 and integrate. Workers write the code. You do not write feature code yourself.
 
-Each repo has one supervisor, `sup-<repo>`. It owns the worktrees of the
-repo. Ask it for each new worktree. The user talks to you directly, so you
-rarely need the supervisor for other work.
+Each repo has one supervisor, `sup-<repo>`. It started you, and it sends you
+notes from the hypervisor. You start all of your workers yourself, in your own
+workspace. The user talks to you directly, so you rarely need the supervisor.
+
+A note from your supervisor that comes from the user or the hypervisor is
+valid. Act on it, and do not ask the user to confirm it.
 
 ## Before you start
 
@@ -104,6 +107,8 @@ have companion workers.
 | `review`   | `<slug>-review`  | Reviews the lead's diff. Edits no code.          |
 | `pr`       | `<slug>-pr`      | Owns the pull request: description, CI, comments.|
 
+- Start every worker in a tab of your own workspace. Do not make a new
+  workspace for a worker, and do not ask your supervisor to start a worker.
 - Start each new workstream in your worktree by default. Make a new worktree
   only when "Choose the worktree" requires it.
 - Start companion workers in the same worktree as their lead, in a sibling
@@ -158,8 +163,8 @@ Use your worktree unless one of these conditions is true:
 - The work must merge on its own while other work changes your worktree.
 - The user asks for a new worktree.
 
-If a condition is true, ask your supervisor for a new worktree. Record the
-reason on the board.
+If a condition is true, make a new worktree yourself (see "Start a
+workstream"). Record the reason on the board.
 
 Work that only reads does not need a new worktree. To read another branch,
 use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
@@ -175,22 +180,18 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
 
      Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. The worktree
      path is `$REPO_ROOT`.
-   - **New worktree:** ask your supervisor for it:
+   - **New worktree:** make the worktree with git, then make a tab on it in
+     your own workspace:
 
      ```bash
-     herdr agent prompt sup-<repo> "orch-<topic> asks for a worktree: slug <slug>, branch <slug>, base <base-ref>."
+     git -C "$REPO_ROOT" fetch origin
+     git -C "$REPO_ROOT" worktree add -b <slug> "$HOME/.herdr/worktrees/<repo>/<slug>" <base-ref>
+     herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label <slug> --cwd "$HOME/.herdr/worktrees/<repo>/<slug>" --no-focus
      ```
 
-     The supervisor sends you the worktree path, the workspace ID, and the
-     root pane ID. If no supervisor is live, ask the user. With the user's
-     approval, make the worktree yourself:
-
-     ```bash
-     herdr worktree create --cwd "$REPO_ROOT" --branch <slug> --base <base-ref> --label <slug> --no-focus
-     ```
-
-     Then read `.result.workspace.workspace_id`, `.result.root_pane.pane_id`,
-     and `.result.worktree.path`.
+     Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. The worktree
+     path is the path that you gave to `git worktree add`. Do not use
+     `herdr worktree create`, because it makes a new workspace.
 2. Use the root pane for the lead worker.
 3. Write the plan into the worktree.
 4. Start the lead worker in the root pane:
@@ -290,8 +291,10 @@ After a workstream is merged or dropped:
 
 1. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
 2. For a workstream in your worktree, close its tab with
-   `herdr tab close <tab-id>`. For a workstream in its own worktree, ask your
-   supervisor to remove the worktree. Give it the workspace ID.
+   `herdr tab close <tab-id>`. For a workstream in its own worktree, also
+   remove the worktree with `git -C "$REPO_ROOT" worktree remove <path>`. If
+   git refuses because the worktree has changes, ask the user before you use
+   `--force`.
 3. Set the board status to `merged` or `dropped`.
 
 Close only the workspaces, panes, and worktrees that you created.
