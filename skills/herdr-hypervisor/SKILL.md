@@ -9,9 +9,9 @@ description: "Act as the hypervisor for all projects in a Herdr session: make pr
 `git config user.name`, and use that name in text for other agents and docs.
 
 You manage the supervisors of several projects. Each project repo has one
-supervisor. A supervisor starts the orchestrators of its repo and owns the
-worktrees of its repo. Each orchestrator has its own worktree and manages its
-own workers. You do not plan project work, and you do not talk to workers.
+supervisor. A supervisor starts the orchestrators of its repo. Each
+orchestrator has its own worktree and its own workspace, and it starts its
+workers there. You do not plan project work, and you do not talk to workers.
 
 ```
 hypervisor (you)
@@ -165,8 +165,8 @@ A `timeout` result is normal. Check the state with `herdr agent get`.
 
 ## Start an orchestrator
 
-The supervisor of the repo starts each orchestrator, because it owns the
-worktrees of the repo.
+The supervisor of the repo starts each orchestrator, because it tracks the
+orchestrators of the repo.
 
 1. Make sure that the repo has a live supervisor. If it has none, start one.
 2. Send the user's request to the supervisor. Give the topic, the user's goal,
@@ -190,18 +190,18 @@ When the user names a running agent as an orchestrator:
 2. Rename it: `herdr agent rename <pane-id> orch-<topic>`.
 3. Set its role token and its rank token:
    `herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token orch=orch --token rank=3`.
-4. If it has not loaded the `herdr-orchestrator` skill, send it a first
-   prompt. Use the orchestrator first prompt in the `herdr-supervisor` skill.
-5. Tell the supervisor of the repo about it, so that the supervisor adds it to
-   its roster.
+4. Tell the supervisor of the repo about it, so that the supervisor adds it to
+   its roster. If the agent has not loaded the `herdr-orchestrator` skill,
+   ask the supervisor to send it the orchestrator first prompt.
 
 ## Worker type
 
 Orchestrators start workers as Claude on Sonnet. The user can change this for
 all projects, for one project, or for one workstream.
 
-- When the user gives you a worker type, send it to each orchestrator that it
-  applies to. Tell the orchestrator to record it on its board.
+- When the user gives you a worker type, send it to the supervisor of each
+  repo that it applies to. Tell the supervisor to pass it on, and to tell
+  each orchestrator to record it on its board.
 - When a supervisor starts a new orchestrator, tell the supervisor to add the
   user's worker type for all projects to the first prompt, if the user gave
   one.
@@ -223,8 +223,12 @@ workspace ID, and the state.
   pane, and tell the user what it asks and in which workspace.
 
 Do not answer the questions or approval prompts of a supervisor or an
-orchestrator. The user answers them in the agent's workspace. Send a prompt to
-a supervisor or an orchestrator only when the user tells you what to send.
+orchestrator. The user answers them in the agent's workspace.
+
+Send a prompt only to a supervisor, and only when the user tells you what to
+send. Do not prompt an orchestrator directly. To reach an orchestrator, send
+the note to the supervisor of its repo. The supervisor decides how and when
+the note reaches the orchestrator.
 
 ## Stop an agent
 

@@ -1,6 +1,6 @@
 ---
 name: herdr-supervisor
-description: "Act as the supervisor for one repo in Herdr: start the orchestrators of the repo, make and remove their worktrees, find conflicts between them, and answer their questions about order. Use only when a hypervisor prompt or the user tells you to load the herdr-supervisor skill. Requires HERDR_ENV=1."
+description: "Act as the supervisor for one repo in Herdr: start the orchestrators of the repo, pass notes from the hypervisor to them, find conflicts between them, and answer their questions about order. Use only when a hypervisor prompt or the user tells you to load the herdr-supervisor skill. Requires HERDR_ENV=1."
 ---
 
 # Herdr supervisor
@@ -8,9 +8,9 @@ description: "Act as the supervisor for one repo in Herdr: start the orchestrato
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.
 
-You supervise the orchestrators of one repo, and you own the worktrees of the
-repo. You do not plan project work, you do not write code, and you do not talk
-to workers.
+You supervise the orchestrators of one repo. You do not plan project work,
+you do not write code, and you do not talk to workers. Each orchestrator
+starts its own workers in its own workspace.
 
 ```
 hypervisor
@@ -20,8 +20,8 @@ hypervisor
 ```
 
 The user talks to the orchestrators directly. Work in the background. Act
-when the user or the hypervisor asks, or when an orchestrator asks for a
-worktree or for an order.
+when the user or the hypervisor asks, or when an orchestrator asks for an
+order.
 
 ## Before you start
 
@@ -129,32 +129,23 @@ herdr agent prompt orch-<topic> "<first prompt>" --wait --timeout 20000
 
 A `timeout` result is normal. Check the state with `herdr agent get`.
 
-## Make a worktree for an orchestrator
+## Pass on notes from the hypervisor
 
-An orchestrator asks you for each new worktree. The request gives the slug,
-the branch, and the base ref.
+The hypervisor sends its notes for orchestrators only to you. You decide how
+each note reaches your orchestrators.
 
-1. Run `git -C <checkout> worktree list`. If a worktree has that branch, tell
-   the orchestrator, and do not make a second one.
-2. Make the worktree:
-
-   ```bash
-   herdr worktree create --cwd <checkout> --branch <branch> --base <base-ref> --label <slug> --no-focus
-   ```
-
-3. Read `.result.workspace.workspace_id`, `.result.root_pane.pane_id`, and
-   `.result.worktree.path`.
-4. Send the result to the orchestrator. Do not wait for its answer:
+1. Find the orchestrators that the note applies to.
+2. Choose when to send it. Hold a note that would stop important work, for
+   example a merge or a deploy, until that work ends.
+3. Send it to each orchestrator. Say that it comes from the hypervisor:
 
    ```bash
-   herdr agent prompt orch-<topic> "Worktree for <slug>: path <path>, workspace <workspace-id>, root pane <pane-id>."
+   herdr agent prompt orch-<topic> "Note from sup-<repo>, from the hypervisor: <note>"
    ```
 
    If the orchestrator is `blocked`, wait until it is not, then send.
-
-When an orchestrator asks you to remove a worktree after a merge or a drop,
-run `herdr worktree remove --workspace <workspace-id>`. Use `--force` only
-after the user approves.
+4. Report in one line in your pane: which orchestrators got the note, and
+   which notes you hold.
 
 ## Answer questions about order
 
@@ -168,7 +159,7 @@ permission prompt for another agent.
 
 ## Find conflicts
 
-Check for conflicts when you make a worktree, and when the user or the
+Check for conflicts when you start an orchestrator, and when the user or the
 hypervisor asks:
 
 - Two branches change the same files. Compare them with
