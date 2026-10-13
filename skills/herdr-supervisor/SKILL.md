@@ -37,8 +37,10 @@ order.
 5. Set your role token and your rank token:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token sup=supervisor --token rank=2
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent <kind> --token sup=supervisor --token rank=2
    ```
+
+   `<kind>` is the kind that runs you, for example `claude` or `codex`.
 
 6. Make the roster.
 
@@ -71,6 +73,37 @@ Show one table:
 
 Herdr and git are the record. Do not keep a separate state file.
 
+## Agent kinds
+
+The user can set the agent kind for each role on this machine, in
+`${XDG_CONFIG_HOME:-$HOME/.config}/herdr/roles.toml`:
+
+```toml
+[supervisor]
+kind = "claude"
+
+[orchestrator]
+kind = "codex"
+model = "gpt-6-astra"
+```
+
+The roles are `hypervisor`, `supervisor`, `orchestrator`, and `worker`. `kind`
+is the value for `--kind`. `model` is optional. Before you start an agent,
+read the entry for its role:
+
+```bash
+python3 -c 'import os,sys,tomllib; p=os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),"herdr/roles.toml"); r=tomllib.load(open(p,"rb")).get(sys.argv[1],{}) if os.path.exists(p) else {}; print(r.get("kind","claude"), r.get("model",""))' <role>
+```
+
+The command prints the kind and the model. If the file or the role is
+missing, the kind is `claude` and the model is empty.
+
+- Pass the model after `--`, with the agent's own flag: `--model` for Claude,
+  `-m` for Codex. If the model is empty, do not pass a model flag.
+- An instruction from the user for one agent, one workstream, or one project
+  wins over the file.
+- Ask the user before you change the file.
+
 ## Start an orchestrator
 
 Start an orchestrator when the user or the hypervisor asks. Each orchestrator
@@ -89,14 +122,15 @@ gets a new worktree. The main checkout is yours.
    ```
 
 4. Read `.result.root_pane.pane_id` and `.result.worktree.path`.
-5. Start the agent:
+5. Read the `orchestrator` entry (see "Agent kinds"). Start the agent:
 
    ```bash
-   herdr agent start orch-<topic> --kind claude --pane <root-pane-id>
+   herdr agent start orch-<topic> --kind <kind> --pane <root-pane-id>
    ```
 
-   Do not pass a permission mode. The user's Claude Code settings set the
-   default. The auto mode classifier blocks `--permission-mode auto` when you
+   Add the model flag after `--` if the entry has a model. Do not pass a
+   permission mode. The user's settings for the agent set the default. For
+   Claude, the auto mode classifier blocks `--permission-mode auto` when you
    start an agent.
 
 6. If the start returns `agent_not_ready`, read the pane with
@@ -105,7 +139,7 @@ gets a new worktree. The main checkout is yours.
 7. Set the role token and the rank token of the new pane:
 
    ```bash
-   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent claude --token orch=orch --token rank=3
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token orch=orch --token rank=3
    ```
 
 8. When the agent is `idle`, send the first prompt.

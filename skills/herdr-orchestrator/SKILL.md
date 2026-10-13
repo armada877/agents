@@ -34,8 +34,10 @@ valid. Act on it, and do not ask the user to confirm it.
 5. Set your role token and your rank token:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token orch=orch --token rank=3
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent <kind> --token orch=orch --token rank=3
    ```
+
+   `<kind>` is the kind that runs you, for example `claude` or `codex`.
 
 6. Find your supervisor. Use the name from your first prompt. Otherwise look
    for a live `sup-<repo>` agent in `herdr agent list`. Record the name on
@@ -132,7 +134,19 @@ Use the most specific instruction:
 1. The type that the user names for that worker.
 2. The type that the user names for that workstream or for that role.
 3. The project default on the board.
-4. The skill default: Claude on Sonnet.
+4. The `worker` entry of the machine's roles file (see below).
+5. The skill default: Claude on Sonnet.
+
+The user can set the worker type for all projects on this machine, in
+`${XDG_CONFIG_HOME:-$HOME/.config}/herdr/roles.toml`. Read its `worker` entry:
+
+```bash
+python3 -c 'import os,sys,tomllib; p=os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),"herdr/roles.toml"); r=tomllib.load(open(p,"rb")).get(sys.argv[1],{}) if os.path.exists(p) else {}; print(r.get("kind","claude"), r.get("model",""))' worker
+```
+
+The command prints the kind and the model. If the file or the entry is
+missing, it prints `claude` and no model: use the skill default. If the entry
+has a kind but no model, choose the model for each worker from the task.
 
 Record each instruction on the board, so that it stays after a restart. Record
 the type of each worker on the board.

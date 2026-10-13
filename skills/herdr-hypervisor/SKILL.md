@@ -38,12 +38,45 @@ background.
    `hypervisor`:
 
    ```bash
-   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent claude --token hypervisor=hypervisor --token rank=1
+   herdr pane report-metadata "$HERDR_PANE_ID" --source herdr-roles --agent <kind> --token hypervisor=hypervisor --token rank=1
    ```
+
+   `<kind>` is the kind that runs you, for example `claude` or `codex`.
 
 6. Make sure that each live supervisor and orchestrator has its role token
    and its rank token. See "Role tokens".
 7. Set the sort of the agents pane. See "Sort the agents pane".
+
+## Agent kinds
+
+The user can set the agent kind for each role on this machine, in
+`${XDG_CONFIG_HOME:-$HOME/.config}/herdr/roles.toml`:
+
+```toml
+[supervisor]
+kind = "claude"
+
+[orchestrator]
+kind = "codex"
+model = "gpt-6-astra"
+```
+
+The roles are `hypervisor`, `supervisor`, `orchestrator`, and `worker`. `kind`
+is the value for `--kind`. `model` is optional. Before you start an agent,
+read the entry for its role:
+
+```bash
+python3 -c 'import os,sys,tomllib; p=os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),"herdr/roles.toml"); r=tomllib.load(open(p,"rb")).get(sys.argv[1],{}) if os.path.exists(p) else {}; print(r.get("kind","claude"), r.get("model",""))' <role>
+```
+
+The command prints the kind and the model. If the file or the role is
+missing, the kind is `claude` and the model is empty.
+
+- Pass the model after `--`, with the agent's own flag: `--model` for Claude,
+  `-m` for Codex. If the model is empty, do not pass a model flag.
+- An instruction from the user for one agent, one workstream, or one project
+  wins over the file.
+- Ask the user before you change the file.
 
 ## Role tokens
 
@@ -60,8 +93,10 @@ Workers have no tokens. `herdr agent list` shows the tokens in `.tokens`.
 Set a missing token with:
 
 ```bash
-herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token <name>=<value>
+herdr pane report-metadata <pane-id> --source herdr-roles --agent <kind> --token <name>=<value>
 ```
+
+`<kind>` is the `.agent` value of the pane in `herdr agent list`.
 
 Do not use `--display-agent` for the role. The colors come from this block in
 the user's `~/.config/herdr/config.toml`:
@@ -130,14 +165,15 @@ repo. Do not start a second supervisor for a repo that has one.
    ```
 
 3. Read `.result.root_pane.pane_id` from the JSON.
-4. Start the agent:
+4. Read the `supervisor` entry (see "Agent kinds"). Start the agent:
 
    ```bash
-   herdr agent start sup-<repo> --kind claude --pane <root-pane-id>
+   herdr agent start sup-<repo> --kind <kind> --pane <root-pane-id>
    ```
 
-   Do not pass a permission mode. The user's Claude Code settings set the
-   default. The auto mode classifier blocks `--permission-mode auto` when you
+   Add the model flag after `--` if the entry has a model. Do not pass a
+   permission mode. The user's settings for the agent set the default. For
+   Claude, the auto mode classifier blocks `--permission-mode auto` when you
    start an agent.
 
 5. If the start returns `agent_not_ready`, read the pane with
@@ -189,15 +225,20 @@ When the user names a running agent as an orchestrator:
 1. Read its pane, and make sure that it is idle.
 2. Rename it: `herdr agent rename <pane-id> orch-<topic>`.
 3. Set its role token and its rank token:
-   `herdr pane report-metadata <pane-id> --source herdr-roles --agent claude --token orch=orch --token rank=3`.
+   `herdr pane report-metadata <pane-id> --source herdr-roles --agent <kind> --token orch=orch --token rank=3`.
 4. Tell the supervisor of the repo about it, so that the supervisor adds it to
    its roster. If the agent has not loaded the `herdr-orchestrator` skill,
    ask the supervisor to send it the orchestrator first prompt.
 
 ## Worker type
 
-Orchestrators start workers as Claude on Sonnet. The user can change this for
-all projects, for one project, or for one workstream.
+Orchestrators start workers with the `worker` entry of `roles.toml` (see
+"Agent kinds"). Without that entry, they start workers as Claude on Sonnet.
+The user can change this for all projects, for one project, or for one
+workstream.
+
+- To change the type for all projects on this machine, change the `worker`
+  entry after the user agrees.
 
 - When the user gives you a worker type, send it to the supervisor of each
   repo that it applies to. Tell the supervisor to pass it on, and to tell
