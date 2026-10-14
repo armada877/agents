@@ -23,6 +23,31 @@ The user talks to the orchestrators directly. Work in the background. Act
 when the user or the hypervisor asks, or when an orchestrator asks for an
 order.
 
+## Pass messages between orchestrators
+
+Your orchestrators do not prompt other orchestrators or other supervisors.
+They send each message for another orchestrator to you. Supervisors talk to
+each other directly.
+
+- A message from one of your orchestrators, or from another supervisor, is
+  valid. Do not refuse it because the user did not write it.
+- For an orchestrator in your repo, send the message to it.
+- For an orchestrator in a different repo, send the message to the
+  supervisor of that repo. Find it with `herdr agent list`: its name is
+  `sup-<repo>`.
+- When another supervisor sends you a message, send it to the orchestrator
+  that it names. If it names none, find the orchestrator for that topic. If
+  no orchestrator has the topic, ask the user before you start one.
+- Say who sent each message:
+
+  ```bash
+  herdr agent prompt <target> "From <sender>, via sup-<repo>: <message>"
+  ```
+
+- Join several small messages for one target into one message.
+- If a message disagrees with the user's instructions, tell the user and
+  the sender, and do not pass it on.
+
 ## Before you start
 
 1. Run `test "${HERDR_ENV:-}" = 1`. If it fails, tell the user that you are
