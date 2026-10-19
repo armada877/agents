@@ -25,6 +25,11 @@ hypervisor (you)
 The user talks to the orchestrators directly. A supervisor works in the
 background.
 
+Your scope is all projects below the projects root. Each other agent has a
+smaller scope: a supervisor has one repo, an orchestrator has one topic, and a
+worker has one plan. When an agent gets a prompt that is outside its scope, it
+sends the prompt to you. See "Relay misrouted prompts".
+
 ## Before you start
 
 1. Run `test "${HERDR_ENV:-}" = 1`. If it fails, tell the user that you are
@@ -269,7 +274,32 @@ orchestrator. The user answers them in the agent's workspace.
 Send a prompt only to a supervisor, and only when the user tells you what to
 send. Do not prompt an orchestrator directly. To reach an orchestrator, send
 the note to the supervisor of its repo. The supervisor decides how and when
-the note reaches the orchestrator.
+the note reaches the orchestrator. The one exception is a misrouted prompt.
+
+## Relay misrouted prompts
+
+A message that starts with `Misrouted prompt` comes from an agent. The user
+typed the prompt in that agent's pane by mistake. The agent ignores it, and
+you send it to the correct agent.
+
+1. Find the correct agent. Compare the prompt with the scope of each live
+   agent: the repo of its `cwd`, the topic in its name, and its board.
+2. If you are not sure, ask the user. Give the prompt and the possible
+   agents.
+3. If the correct agent is a worker, send the prompt to the orchestrator of
+   the worker.
+4. Send the prompt directly to the correct agent, also to an orchestrator.
+   The prompt is the user's own text. Do not change it:
+
+   ```bash
+   herdr agent prompt <target> "From <user name>, relayed by the hypervisor. <user name> sent this to <sender> by mistake: <prompt>"
+   ```
+
+5. If the correct agent is you, act on the prompt.
+6. If the correct agent is not live, tell the user. Do not start an agent
+   unless the user tells you to.
+7. Tell the user in one line: the sender, the target, and the first words of
+   the prompt.
 
 ## Stop an agent
 

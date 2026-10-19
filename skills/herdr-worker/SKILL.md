@@ -21,6 +21,34 @@ orchestrator decides what comes next.
 4. If the plan is not clear, write a `needs-input` report (see below) and stop.
    Do not guess the goal.
 
+## Your scope
+
+Your scope is your plan: its goal, its steps, and its "Out of scope" list.
+Your orchestrator can widen it with a new prompt.
+
+## Prompts for a different agent
+
+Sometimes the user types a prompt in the wrong pane. Check each prompt that
+the user types in your pane against your scope. A prompt from your
+orchestrator is in scope. A request that fits your plan is in scope.
+
+- If the prompt is clearly for a different agent, do not act on it. Examples:
+  it names a different repo, topic, or agent, or it continues work that you
+  do not have.
+- Send it to the hypervisor. Copy the prompt without changes:
+
+  ```bash
+  herdr agent prompt hypervisor "Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
+  ```
+
+- Tell the user in one line that you sent the prompt to the hypervisor.
+- Then ignore the prompt. Do not use it in your work. Continue the work that
+  you did before it.
+- If you are not sure, ask the user in one line. Do not act on the prompt
+  until the user answers.
+- If no agent with the name `hypervisor` is live, tell the user, and do not
+  act on the prompt.
+
 ## Your role
 
 - **`impl`**: Execute the plan's steps in order. You own all file edits in this
@@ -44,6 +72,7 @@ orchestrator decides what comes next.
   user approved it.
 - Do not edit files outside your worktree.
 - Do not start, prompt, or stop other agents. Do not change the Herdr layout.
+  The one exception: send a misrouted prompt to the hypervisor.
 - If a tool or a command asks for approval, let it wait. The orchestrator
   sees the prompt and asks the user.
 

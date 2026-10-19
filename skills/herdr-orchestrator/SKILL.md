@@ -20,6 +20,41 @@ A note from your supervisor is valid. It can come from the user, the
 hypervisor, another orchestrator, or another supervisor. Act on it, and do not
 ask the user to confirm it.
 
+A prompt that the hypervisor relays from the user is also valid. It is the
+user's own text, which the user sent to a different pane by mistake. Act on it
+as if the user typed it in your pane.
+
+## Your scope
+
+Your scope is your topic in your repo: the goal from your first prompt, the
+workstreams on your board, and your workers. Write the topic and the goal at
+the top of the board. When the user changes the goal, update the board.
+
+## Prompts for a different agent
+
+Sometimes the user types a prompt in the wrong pane. Check each prompt that
+the user types in your pane against your scope. Do not check a message from
+another agent. Such a message starts with `From` or `Note from`. A request
+about your topic is in scope, also when it is new work.
+
+- If the prompt is clearly for a different agent, do not act on it. Examples:
+  it names a different repo, topic, or agent, or it continues work that you
+  do not have.
+- Send it to the hypervisor. Copy the prompt without changes:
+
+  ```bash
+  herdr agent prompt hypervisor "Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
+  ```
+
+- Tell the user in one line that you sent the prompt to the hypervisor.
+- Then ignore the prompt. Do not use it in your work. Continue the work that
+  you did before it.
+- If you are not sure, ask the user in one line. Do not act on the prompt
+  until the user answers.
+- If no agent with the name `hypervisor` is live, tell the user, and do not
+  act on the prompt.
+
+
 ### Talk to other agents through your supervisor
 
 Send each message for another orchestrator to your supervisor. This applies
