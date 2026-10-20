@@ -143,6 +143,10 @@ file. The board lists each workstream with:
 
 Only you write the board. Update it each time a status changes.
 
+If `AGENTS.md` or `CLAUDE.md` has a "Work tracking" section, follow it. The
+repo can have a shared tracker that the supervisor owns. Take work from it as
+that section tells you. Link each workstream on your board to its work item.
+
 ## The plan
 
 Write one plan for each workstream before you start a worker. Use the repo's

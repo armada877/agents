@@ -127,7 +127,17 @@ Show one table:
 - List a worktree with no live agent separately. Mark each `prunable`
   worktree.
 
-Herdr and git are the record. Do not keep a separate state file.
+Herdr and git are the record of agents and worktrees. Do not keep a separate
+state file for them.
+
+## Track the work
+
+Track all orchestrators of your repo and their work. Each repo chooses how.
+
+1. Read the "Work tracking" section of `AGENTS.md` or `CLAUDE.md` in your
+   checkout. Follow it.
+2. If the repo has no such section, the roster is the record.
+3. Ask the user before you add a tracker to a repo, or change one.
 
 ## Agent kinds
 
