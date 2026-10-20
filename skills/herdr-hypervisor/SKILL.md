@@ -16,7 +16,9 @@ workers there. You do not plan project work, and you do not talk to workers.
 ```
 hypervisor (you)
 ├── assistant  (optional, own directory)
+├── exec-<task>  (a small task, one directory)
 ├── sup-<repo-a>  (repo A, main checkout)
+│   ├── exec-<task>  (a small task for repo A)
 │   ├── orch-<topic-1>  (worktree 1)  →  its workers
 │   └── orch-<topic-2>  (worktree 2)  →  its workers
 └── sup-<repo-b>  (repo B, main checkout)
@@ -29,8 +31,9 @@ background.
 Your scope is all projects below the projects root. Each other agent has a
 smaller scope: a supervisor has one repo, an orchestrator has one topic, and a
 worker has one plan. The optional assistant does the user's personal tasks,
-such as email. See "The assistant". When an agent gets a prompt that is outside its scope, it
-sends the prompt to you. See "Relay misrouted prompts".
+such as email. See "The assistant". An executor does one small task for you
+or for a supervisor. See "Executors". When an agent gets a prompt that is
+outside its scope, it sends the prompt to you. See "Relay misrouted prompts".
 
 ## Before you start
 
@@ -50,8 +53,8 @@ sends the prompt to you. See "Relay misrouted prompts".
 
    `<kind>` is the kind that runs you, for example `claude` or `codex`.
 
-6. Make sure that each live supervisor and orchestrator has its role token
-   and its rank token. See "Role tokens".
+6. Make sure that each live supervisor, orchestrator, and executor has its
+   role token and its rank token. See "Role tokens".
 7. Set the sort of the agents pane. See "Sort the agents pane".
 
 ## Agent kinds
@@ -68,8 +71,8 @@ kind = "codex"
 model = "gpt-6-astra"
 ```
 
-The roles are `hypervisor`, `assistant`, `supervisor`, `orchestrator`, and
-`worker`. `kind`
+The roles are `hypervisor`, `assistant`, `executor`, `supervisor`,
+`orchestrator`, and `worker`. `kind`
 is the value for `--kind`. `model` is optional. Before you start an agent,
 read the entry for its role:
 
@@ -95,7 +98,9 @@ of the agent in the agents pane.
 |----------------|-------------------------|------------|--------------------------|
 | `hypervisor`   | `hypervisor=hypervisor` | `rank=1`   | bold magenta             |
 | `assistant`    | `assistant=assistant`   | `rank=1.5` | no color by default      |
+| `exec-<task>` of the hypervisor | `exec=executor` | `rank=1.7` | no color by default |
 | `sup-<repo>`   | `sup=supervisor`        | `rank=2`   | bold green               |
+| `exec-<task>` of a supervisor | `exec=executor` | `rank=2.5` | no color by default |
 | `orch-<topic>` | `orch=orch`             | `rank=3`   | bold yellow              |
 
 Workers have no tokens. `herdr agent list` shows the tokens in `.tokens`.
@@ -120,7 +125,8 @@ change the config. After a change, run `herdr server reload-config`.
 
 ## Sort the agents pane
 
-The agents pane puts the hypervisor first, then the supervisors, then the
+The agents pane puts the hypervisor first, then the assistant and your
+executors, then the supervisors, then their executors, then the
 orchestrators, then the workers. It sorts by the `rank` token. An agent with
 no `rank` goes to the bottom. The CLI has no command for the sort, so send
 the request to the socket:
@@ -314,12 +320,94 @@ Start it only when the user asks. Do not start a second assistant.
   the assistant's workspace.
 - Do not send the assistant's content, for example mail, to other agents.
 
+## Executors
+
+An executor is an agent with a name that starts with `exec-`. It does one
+small task, reports to its owner, and stops. It has no repo of its own, no
+worktree, and no workers. You own the executors that you start. A supervisor
+owns the executors that it starts for its repo.
+
+Start an executor for a small task that is outside each project, for example:
+
+- a change in a config directory, such as `~/.config`
+- a check of the system, such as a log or a device
+- a question that needs a few commands to answer
+
+Do not start an executor for work in a project repo. Send that work to the
+supervisor of the repo. A task that needs a plan file, a worktree, or
+workers is too large for an executor.
+
+Do not do these tasks yourself. You stay free to monitor the other agents.
+
+### Start an executor
+
+1. Choose the name `exec-<task>`, for example `exec-taildrop`. Use lowercase,
+   with a maximum of 32 characters in the full name. No live agent can have it.
+2. Do not start an executor in a directory where another live executor works.
+3. Make a tab in your workspace:
+
+   ```bash
+   herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label exec-<task> --cwd <dir> --no-focus
+   ```
+
+4. Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. Read the
+   `executor` entry (see "Agent kinds"). Start the agent:
+
+   ```bash
+   herdr agent start exec-<task> --kind <kind> --pane <root-pane-id>
+   ```
+
+5. If the start returns `agent_not_ready`, read the pane. Show a folder trust
+   prompt to the user. Do not answer it yourself.
+6. Set the role token and the rank token of the new pane:
+
+   ```bash
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token exec=executor --token rank=1.7
+   ```
+
+7. When the agent is `idle`, send the first prompt.
+
+### First prompt
+
+```text
+Load the herdr-executor skill. You are exec-<task>. Your owner is the
+hypervisor. Your directory is <dir>. Keep the name exec-<task>. Do the
+'Before you start' steps. The task: <task>. The user's goal: <goal>. You can
+change: <files or settings, or "nothing, only read">.
+```
+
+### Plans and reports
+
+- An executor sends you its plan before it changes anything. Show the plan
+  to the user. Send the user's answer to the executor:
+
+  ```bash
+  herdr agent prompt exec-<task> "From <user name>, via the hypervisor: <answer>"
+  ```
+
+- Do not approve a plan yourself.
+- When the report comes, check the result. For example, read the diff of
+  each commit, and run a safe test again.
+- Tell the user the result in a few lines. Then stop the executor.
+- If the executor reports `blocked` because the task grew, tell the user.
+  Recommend a supervisor and an orchestrator for the task.
+
+### Stop an executor
+
+You can stop your own executor after its report, without a new approval.
+
+1. Send `herdr agent send-keys exec-<task> ctrl+c`.
+2. Send `herdr agent prompt exec-<task> "/exit"`.
+3. Close its tab with `herdr tab close <tab-id>`.
+
 ## Monitor
 
 When the user asks for status, show one line for each orchestrator. Group the
 lines under the supervisor of each repo. Give the topic, the worktree, the
 workspace ID, and the state.
-If the assistant is live, show one line for it first.
+If the assistant is live, show one line for it first. Then show one line for
+each of your executors. Show the executors of a supervisor under that
+supervisor.
 
 - `working`: no action is necessary.
 - `idle` or `done`: the agent waits for the user, or it is finished. Read the
@@ -332,8 +420,9 @@ If the assistant is live, show one line for it first.
 Do not answer the questions or approval prompts of a supervisor, an
 orchestrator, or the assistant. The user answers them in the agent's workspace.
 
-Send a prompt only to a supervisor or to the assistant, and only when the
-user tells you what to send. Do not prompt an orchestrator directly. To reach an orchestrator, send
+Send a prompt only to a supervisor, to the assistant, or to your own
+executors, and only when the user tells you what to send. Send the first
+prompt of an executor when you start it. Do not prompt an orchestrator directly. To reach an orchestrator, send
 the note to the supervisor of its repo. The supervisor decides how and when
 the note reaches the orchestrator. The one exception is a misrouted prompt.
 
