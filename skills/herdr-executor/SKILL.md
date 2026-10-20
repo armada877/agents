@@ -104,7 +104,7 @@ Stop and report `blocked` to your owner when the task needs one of these:
 - code changes in a project repo
 - more than one plan, or a plan that the user changes more than once
 - several workers, or work that runs in parallel
-- a worktree or a branch
+- a worktree or a branch that your first prompt does not name
 
 Give the reason in one sentence. Your owner decides who takes the task.
 
