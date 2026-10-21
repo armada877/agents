@@ -371,15 +371,46 @@ the repo, you can ask your supervisor about the order.
 
 After a workstream is merged or dropped:
 
-1. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
-2. For a workstream in your worktree, close its tab with
+1. For each Codex worker, record its IDs. See "Confirm that a Codex agent stopped".
+2. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
+3. For a workstream in your worktree, close its tab with
    `herdr tab close <tab-id>`. For a workstream in its own worktree, also
    remove the worktree with `git -C "$REPO_ROOT" worktree remove <path>`. If
    git refuses because the worktree has changes, ask the user before you use
    `--force`.
-3. Set the board status to `merged` or `dropped`.
+4. For each Codex worker, do the checks in "Confirm that a Codex agent stopped".
+5. Set the board status to `merged` or `dropped`.
 
 Close only the workspaces, panes, and worktrees that you created.
+
+### Confirm that a Codex agent stopped
+
+A Codex session can continue after its pane closes. Do this check each time
+you stop a Codex agent.
+
+1. Before you stop the agent, record its pane ID and its session ID:
+
+   ```bash
+   herdr agent get <name> | jq -r '.result.agent.pane_id, .result.agent.agent_session.value'
+   ```
+
+2. After the agent exits, find each `codex` process that remains for its pane:
+
+   ```bash
+   for pid in $(pgrep -x codex); do grep -qzx "HERDR_PANE_ID=<pane-id>" /proc/$pid/environ 2>/dev/null && ps -o pid=,args= -p "$pid"; done
+   ```
+
+   Ignore each `codex app-server` line. All panes share that daemon. Each
+   other line is a process that did not stop.
+3. Find the session file, and read its size two times, 60 seconds apart:
+
+   ```bash
+   f=$(find ~/.codex/sessions -name "*<session-id>.jsonl"); stat -c %s "$f"; sleep 60; stat -c %s "$f"
+   ```
+
+   If the size increased, the session did not stop.
+4. If a check fails, tell the user the PID, the session file, and the two
+   sizes. Do not kill a process without the user's approval.
 
 ## Recover after a restart
 

@@ -275,10 +275,41 @@ Do this only when the user asks.
 
 1. Read the orchestrator's pane. If it has running workers, tell the user,
    and ask if the orchestrator must stop them first.
-2. Send `herdr agent send-keys orch-<topic> ctrl+c`, or tell the user to exit
+2. If the orchestrator is a Codex agent, record its IDs. See "Confirm that a Codex agent stopped".
+3. Send `herdr agent send-keys orch-<topic> ctrl+c`, or tell the user to exit
    it.
-3. Close its workspace only if you created it, and only after the user
+4. If the orchestrator is a Codex agent, do the checks in "Confirm that a Codex agent stopped".
+5. Close its workspace only if you created it, and only after the user
    agrees. Remove its worktree only when the user tells you to.
+
+### Confirm that a Codex agent stopped
+
+A Codex session can continue after its pane closes. Do this check each time
+you stop a Codex agent.
+
+1. Before you stop the agent, record its pane ID and its session ID:
+
+   ```bash
+   herdr agent get <name> | jq -r '.result.agent.pane_id, .result.agent.agent_session.value'
+   ```
+
+2. After the agent exits, find each `codex` process that remains for its pane:
+
+   ```bash
+   for pid in $(pgrep -x codex); do grep -qzx "HERDR_PANE_ID=<pane-id>" /proc/$pid/environ 2>/dev/null && ps -o pid=,args= -p "$pid"; done
+   ```
+
+   Ignore each `codex app-server` line. All panes share that daemon. Each
+   other line is a process that did not stop.
+3. Find the session file, and read its size two times, 60 seconds apart:
+
+   ```bash
+   f=$(find ~/.codex/sessions -name "*<session-id>.jsonl"); stat -c %s "$f"; sleep 60; stat -c %s "$f"
+   ```
+
+   If the size increased, the session did not stop.
+4. If a check fails, tell the user the PID, the session file, and the two
+   sizes. Do not kill a process without the user's approval.
 
 ## Rules
 
