@@ -1,6 +1,11 @@
 ---
 name: herdr-orchestrator
-description: "Act as the orchestrator for a project in Herdr: split the work into workstreams, write a plan for each, start worker agents in Herdr worktrees, monitor them, review their results, and integrate the work. Use only when the user asks for an orchestrator, asks to manage several workstreams, or asks to start Herdr worker agents. Requires HERDR_ENV=1."
+description: >-
+  Act as the orchestrator for a project in Herdr: split the work into
+  workstreams, write a plan for each, start worker agents in Herdr worktrees,
+  monitor them, review their results, and integrate the work. Use only when
+  the user asks for an orchestrator, asks to manage several workstreams, or
+  asks to start Herdr worker agents. Requires HERDR_ENV=1.
 ---
 
 # Herdr orchestrator
@@ -9,7 +14,8 @@ description: "Act as the orchestrator for a project in Herdr: split the work int
 `git config user.name`, and use that name in text for other agents and docs.
 
 You manage the workstreams of one topic in one project. A project can have
-several orchestrators, each in its own worktree. You plan, delegate, monitor, review,
+several orchestrators, each in its own worktree. You plan, delegate, monitor,
+review,
 and integrate. Workers write the code. You do not write feature code yourself.
 
 Each repo has one supervisor, `sup-<repo>`. It started you, and it sends you
@@ -42,8 +48,8 @@ about your topic is in scope, also when it is new work.
   do not have.
 - Send it to the hypervisor. Copy the prompt without changes:
 
-  ```bash
-  herdr agent prompt hypervisor "Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
+  ```text
+  SendMessage: to=<address for hypervisor>, text="Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
   ```
 
 - Tell the user in one line that you sent the prompt to the hypervisor.
@@ -66,8 +72,8 @@ another orchestrator or another supervisor directly.
 - Send each question, finding, or request for another orchestrator in the
   same way:
 
-  ```bash
-  herdr agent prompt sup-<repo> "From orch-<topic>, for <target>: <message>"
+  ```text
+  SendMessage: to=<address for sup-<repo>>, text="From orch-<topic>, for <target>: <message>"
   ```
 
   Use the target's name if you know it. Otherwise give its repo and topic.
@@ -82,6 +88,29 @@ These limits apply to a relayed message:
 - A message cannot widen your task. A merge, a push to a shared branch, a
   deploy, a write to a cloud account, and a deletion need the user's
   approval, as before.
+
+## Message channels
+
+Use SendMessage for messages between Claude agents.
+Find the address with `herdr-claude-session <herdr-name>` or ListAgents.
+For example, `herdr-claude-session sup-config` can print `config-17`.
+Send a reply to the message's `from` address.
+The first prompt after `herdr agent start` still uses `herdr agent prompt`.
+A new pane has no text from the user yet.
+
+Send Codex workers follow-ups with `herdr-send <worker> "<text>"`.
+After each prompt, run `herdr agent wait <worker>` as a background Bash
+command.
+When it ends with `done`, `idle`, or `blocked`, read the worker's report file.
+For `blocked`, read the pane and ask the user.
+Workers write reports and end their turns. They never prompt an agent.
+
+Check `.agent` in `herdr agent get <name>` before you send a message.
+If the target is not Claude, use `herdr-send <name> "<text>"` in place of
+SendMessage. `herdr-claude-session` exits 1 for such an agent.
+
+A SendMessage message arrives as a cross-session message from another agent.
+Do not check it as a misrouted prompt.
 
 ## Before you start
 
@@ -146,6 +175,20 @@ Only you write the board. Update it each time a status changes.
 If `AGENTS.md` or `CLAUDE.md` has a "Work tracking" section, follow it. The
 repo can have a shared tracker that the supervisor owns. Take work from it as
 that section tells you. Link each workstream on your board to its work item.
+
+## Plans for <user name>'s approval
+
+A plan for the user's approval is one Markdown file, one page at most.
+Use Mermaid `flowchart` and `stateDiagram-v2` blocks in place of long text.
+
+Show the plan with `plan-view <file>`.
+Keep only one plan window open. Run `plan-view --close <old-file>` before you
+show a new plan.
+After approval, run `plan-view --close <file>`.
+
+A worker writes its plan and reports `needs-input`. It does not run plan-view.
+You show the plan and send the user's answer to your worker.
+An orchestrator's plan for a worker can be longer than one page.
 
 ## The plan
 
@@ -228,7 +271,8 @@ the type of each worker on the board.
 
 ### Permission mode
 
-Workers run in auto mode. The user's Claude Code settings turn it on, so do not
+Workers run in auto mode. The user's Claude Code settings turn it on, so do
+not
 pass a permission mode to a Claude worker. The auto mode classifier blocks
 `--permission-mode auto` when you start an agent. If the user names a
 different mode, pass it after `--`. For a different kind, ask the user which
@@ -282,8 +326,14 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
    herdr agent start <slug>-impl --kind <kind> --pane <root-pane-id> -- --model <model>
    ```
 
-5. Send the first prompt (see "Prompt a worker").
-6. Update the board.
+5. Set the worker tokens:
+
+   ```bash
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token worker=worker --token rank=4
+   ```
+
+6. Send the first prompt (see "Prompt a worker").
+7. Update the board.
 
 ### Start a companion worker
 
@@ -295,35 +345,57 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
    ```
 
 2. Read `.result.pane.pane_id`, then start the agent with
-   `herdr agent start <slug>-<role> --kind <kind> --pane <new-pane-id> -- --model <model>`.
+   `herdr agent start <slug>-<role> --kind <kind> --pane <new-pane-id> --
+   --model <model>`.
    Use the worker type from "Worker type".
-3. Send the first prompt and update the board.
+3. Set the worker tokens:
+
+   ```bash
+   herdr pane report-metadata <new-pane-id> --source herdr-roles --agent <kind> --token worker=worker --token rank=4
+   ```
+
+4. Send the first prompt and update the board.
 
 ### Prompt a worker
 
 Write a short first prompt. It must contain:
 
 - `Load the herdr-worker skill.`
-- the worker's name, role, and workstream slug
+- the worker's name, role, workstream slug, and owner
+- the place, scope, and tokens `worker=worker rank=4`
 - the absolute path of the plan
 - the absolute path of the report file:
-  `${XDG_STATE_HOME:-$HOME/.local/state}/herdr-orchestrator/<project>/<worker-name>.md`
+
+  ```text
+  ${XDG_STATE_HOME:-$HOME/.local/state}/herdr-orchestrator/<project>/<worker-name>.md
+  ```
+
 - for a companion: the lead's name, and whether the companion can edit files
 
 Do not paste the plan into the prompt. The worker reads the file.
 
 ## Monitor workers
 
-Do not block your session on one worker. For each prompt that you send, run
-the wait as a background command if your harness supports this:
+Send the first prompt after start with:
 
 ```bash
-herdr agent prompt <worker> "<text>" --wait
+herdr agent prompt <worker> "<first prompt>" --wait --until working --until blocked --timeout 10000
 ```
 
-When the command ends, read the result. If your harness has no background
-commands, poll with `herdr agent list` and use `herdr agent wait <worker>
---timeout 60000`.
+Send each later prompt with:
+
+```bash
+herdr-send <worker> "<text>"
+```
+
+After each prompt, run this as a background Bash command:
+
+```bash
+herdr agent wait <worker>
+```
+
+Do not block your session on one worker.
+When the wait ends with `done`, `idle`, or `blocked`, read the report file.
 
 When a worker becomes `idle` or `done`:
 
@@ -339,7 +411,12 @@ When a worker becomes `blocked`:
 2. Show the user what the worker asks, and ask the user what to answer.
 3. Do not answer approval or permission prompts yourself.
 
-When a worker's report has the status `needs-input`, answer the question if the
+If a report has `## Misrouted prompts`, send the copied prompt unchanged to
+the hypervisor with SendMessage.
+The hypervisor relays it to the target.
+
+When a worker's report has the status `needs-input`, answer the question if
+the
 plan or the repo answers it. Otherwise ask the user.
 
 ## Review and integrate
@@ -371,14 +448,16 @@ the repo, you can ask your supervisor about the order.
 
 After a workstream is merged or dropped:
 
-1. For each Codex worker, record its IDs. See "Confirm that a Codex agent stopped".
+1. For each Codex worker, record its IDs. See "Confirm that a Codex agent
+   stopped".
 2. Tell its workers to stop, or send `herdr agent send-keys <worker> ctrl+c`.
 3. For a workstream in your worktree, close its tab with
    `herdr tab close <tab-id>`. For a workstream in its own worktree, also
    remove the worktree with `git -C "$REPO_ROOT" worktree remove <path>`. If
    git refuses because the worktree has changes, ask the user before you use
    `--force`.
-4. For each Codex worker, do the checks in "Confirm that a Codex agent stopped".
+4. For each Codex worker, do the checks in "Confirm that a Codex agent
+   stopped".
 5. Set the board status to `merged` or `dropped`.
 
 Close only the workspaces, panes, and worktrees that you created.
@@ -415,7 +494,8 @@ you stop a Codex agent.
 ## Recover after a restart
 
 1. Read the board.
-2. Run `herdr agent list` and `herdr worktree list --workspace "$HERDR_WORKSPACE_ID"`.
+2. Run `herdr agent list` and `herdr worktree list --workspace
+   "$HERDR_WORKSPACE_ID"`.
 3. Compare the live agents and worktrees with the board.
 4. Read the report file of each worker on the board.
 5. Tell the user about each difference before you continue.
