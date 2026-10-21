@@ -1,0 +1,76 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: plan-view <file.md> | plan-view --close <file.md>" >&2
+  exit 1
+}
+
+close_only=false
+if [[ ${1:-} == --close ]]; then
+  (($# == 2)) || usage
+  close_only=true
+  source_file="$(realpath -m "$2")"
+else
+  (($# == 1)) || usage
+  [[ -f $1 ]] || usage
+  source_file="$(realpath "$1")"
+fi
+
+package_dir="$(realpath "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../plan-view")"
+install_dir="$HOME/.local/share/plan-view"
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/plan-view"
+colors_file="$HOME/.local/state/omarchy/current/theme/colors.toml"
+
+file_id="$(printf '%s' "$source_file" | sha256sum | cut -c1-12)"
+output_file="$cache_dir/$file_id.html"
+window_title="$(basename "$source_file") · plan-view $file_id"
+
+install_packages() {
+  if [[ -f $install_dir/node_modules/.package-lock.json ]] &&
+    cmp -s "$package_dir/package-lock.json" "$install_dir/package-lock.json"; then
+    return
+  fi
+  mkdir -p "$install_dir"
+  cp "$package_dir/package.json" "$package_dir/package-lock.json" "$install_dir/"
+  npm ci --prefix "$install_dir" --ignore-scripts --no-audit --no-fund >&2
+}
+
+render() {
+  mkdir -p "$cache_dir"
+  node "$package_dir/render.mjs" \
+    "$source_file" "$output_file" "$install_dir" "$colors_file" "$window_title"
+}
+
+close_open_windows() {
+  local address clients
+  clients="$(hyprctl clients -j)" || return 0
+  if ! jq -e 'type == "array"' <<<"$clients" >/dev/null 2>&1; then
+    echo "plan-view: cannot read windows" >&2
+    return 0
+  fi
+  printf '%s\n' "$clients" |
+    jq -r --arg title "$window_title" '.[] | select(.title == $title) | .address' |
+    while read -r address; do
+      hyprctl dispatch "hl.dsp.window.close({ window = \"address:$address\" })" >/dev/null
+    done
+}
+
+open_window() {
+  setsid -f chromium \
+    --user-data-dir="$install_dir/profile" \
+    --allow-file-access-from-files \
+    --no-first-run \
+    --app="file://$output_file" >/dev/null 2>&1
+}
+
+if "$close_only"; then
+  close_open_windows
+  exit 0
+fi
+
+install_packages
+render
+close_open_windows
+open_window

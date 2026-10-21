@@ -1,0 +1,9 @@
+{
+  "name": "plan-view",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "marked": "18.1.0",
+    "mermaid": "12.1.0"
+  }
+}

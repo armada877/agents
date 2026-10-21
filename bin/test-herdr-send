@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from pathlib import Path
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+
+loader = SourceFileLoader("herdr_send", str(Path(__file__).with_name("herdr-send")))
+module = module_from_spec(spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+
+
+class InputTests(unittest.TestCase):
+    def test_codex_empty(self):
+        screen = "› previous prompt\n\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m  \nstatus"
+        self.assertTrue(module.input_is_empty(screen))
+
+    def test_codex_typed(self):
+        screen = "› \x1b[2mAsk Codex to do anything\x1b[0m\n\x1b[1m›\x1b[0m typed text\nstatus"
+        self.assertFalse(module.input_is_empty(screen))
+
+    def test_claude_empty(self):
+        screen = "❯ previous prompt\n\x1b[1m❯\x1b[0m \u00a0 \nstatus"
+        self.assertTrue(module.input_is_empty(screen))
+
+    def test_claude_typed(self):
+        screen = "❯ \n\x1b[1m❯\x1b[0m typed text\nstatus"
+        self.assertFalse(module.input_is_empty(screen))
+
+
+class SendTests(unittest.TestCase):
+    def test_waits_for_turn_start_and_returns_prompt_status(self):
+        args = SimpleNamespace(agent="worker", text="task", timeout=None, interval=2)
+        with (
+            patch.object(module, "agent_status", side_effect=["idle", "idle"]),
+            patch.object(module, "read_input", return_value=True),
+            patch.object(module.time, "sleep") as sleep,
+            patch.object(module.subprocess, "run") as prompt,
+        ):
+            prompt.return_value.returncode = 7
+            self.assertEqual(module.send_when_ready(args), 7)
+        sleep.assert_called_once_with(2)
+        prompt.assert_called_once_with(
+            [
+                "herdr", "agent", "prompt", "worker", "task",
+                "--wait", "--until", "working", "--until", "blocked",
+                "--timeout", "10000",
+            ]
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

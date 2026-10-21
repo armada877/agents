@@ -1,6 +1,10 @@
 ---
 name: herdr-supervisor
-description: "Act as the supervisor for one repo in Herdr: start the orchestrators of the repo, pass notes from the hypervisor to them, find conflicts between them, and answer their questions about order. Use only when a hypervisor prompt or the user tells you to load the herdr-supervisor skill. Requires HERDR_ENV=1."
+description: >-
+  Act as the supervisor for one repo in Herdr: start the orchestrators of the
+  repo, pass notes from the hypervisor to them, find conflicts between them,
+  and answer their questions about order. Use only when a hypervisor prompt or
+  the user tells you to load the herdr-supervisor skill. Requires HERDR_ENV=1.
 ---
 
 # Herdr supervisor
@@ -9,13 +13,14 @@ description: "Act as the supervisor for one repo in Herdr: start the orchestrato
 `git config user.name`, and use that name in text for other agents and docs.
 
 You supervise the orchestrators of one repo. You do not plan project work,
-you do not write code, and you do not talk to workers. Each orchestrator
+you do not write code, and you talk only to your own workers. Each
+orchestrator
 starts its own workers in its own workspace.
 
 ```
 hypervisor
 └── sup-<repo> (you, main checkout)
-    ├── exec-<task>  (a small task, no code change)
+    ├── work-<task>  (a small task, no code change)
     ├── orch-<topic-1>  (worktree 1)  →  its workers
     └── orch-<topic-2>  (worktree 2)  →  its workers
 ```
@@ -42,9 +47,11 @@ start, stop, or pass a note to one of your orchestrators is in scope.
   do not have.
 - Send it to the hypervisor. Copy the prompt without changes:
 
-  ```bash
-  herdr agent prompt hypervisor "Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
+  ```text
+  SendMessage: to=<address for hypervisor>, text="Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
   ```
+
+  Use the rule under "Message channels".
 
 - Tell the user in one line that you sent the prompt to the hypervisor.
 - Then ignore the prompt. Do not use it in your work. Continue the work that
@@ -53,7 +60,6 @@ start, stop, or pass a note to one of your orchestrators is in scope.
   until the user answers.
 - If no agent with the name `hypervisor` is live, tell the user, and do not
   act on the prompt.
-
 
 ## Pass messages between orchestrators
 
@@ -72,13 +78,37 @@ each other directly.
   no orchestrator has the topic, ask the user before you start one.
 - Say who sent each message:
 
-  ```bash
-  herdr agent prompt <target> "From <sender>, via sup-<repo>: <message>"
+  ```text
+  SendMessage: to=<address for <target>>, text="From <sender>, via sup-<repo>: <message>"
   ```
+
+  Use the rule under "Message channels".
 
 - Join several small messages for one target into one message.
 - If a message disagrees with the user's instructions, tell the user and
   the sender, and do not pass it on.
+
+## Message channels
+
+Check both kinds with `.agent` in `herdr agent get <name>`.
+Use SendMessage only when both the sender and the target are Claude agents.
+Otherwise, use `herdr-send <name> "<text>"`.
+`herdr-claude-session` exits 1 for a target that is not Claude.
+Find the address with `herdr-claude-session <herdr-name>` or ListAgents.
+For example, `herdr-claude-session sup-config` can print `config-17`.
+Send a reply to the message's `from` address.
+The first prompt after `herdr agent start` still uses `herdr agent prompt`.
+A new pane has no text from the user yet.
+
+Send Codex workers follow-ups with `herdr-send <worker> "<text>"`.
+After each prompt, run `herdr agent wait <worker>` as a background Bash
+command.
+When it ends with `done`, `idle`, or `blocked`, read the worker's report file.
+For `blocked`, read the pane and ask the user.
+Workers write reports and end their turns. They never prompt an agent.
+
+A SendMessage message arrives as a cross-session message from another agent.
+Do not check it as a misrouted prompt.
 
 ## Before you start
 
@@ -127,7 +157,7 @@ Show one table:
 - Put each worker under the orchestrator in the same workspace.
 - List a worktree with no live agent separately. Mark each `prunable`
   worktree.
-- List your live executors below the table, with their task and status.
+- List your live workers below the table, with their task and status.
 
 Herdr and git are the record of agents and worktrees. Do not keep a separate
 state file for them.
@@ -141,6 +171,20 @@ Track all orchestrators of your repo and their work. Each repo chooses how.
 2. If the repo has no such section, the roster is the record.
 3. Ask the user before you add a tracker to a repo, or change one.
 
+## Plans for <user name>'s approval
+
+A plan for the user's approval is one Markdown file, one page at most.
+Use Mermaid `flowchart` and `stateDiagram-v2` blocks in place of long text.
+
+Show the plan with `plan-view <file>`.
+Keep only one plan window open. Run `plan-view --close <old-file>` before you
+show a new plan.
+After approval, run `plan-view --close <file>`.
+
+A worker writes its plan and reports `needs-input`. It does not run plan-view.
+You show the plan and send the user's answer to your worker.
+An orchestrator's plan for a worker can be longer than one page.
+
 ## Agent kinds
 
 The user can set the agent kind for each role on this machine, in
@@ -151,11 +195,13 @@ The user can set the agent kind for each role on this machine, in
 kind = "claude"
 
 [orchestrator]
+kind = "claude"
+
+[worker]
 kind = "codex"
-model = "gpt-6-astra"
 ```
 
-The roles are `hypervisor`, `executor`, `supervisor`, `orchestrator`, and
+The roles are `hypervisor`, `assistant`, `supervisor`, `orchestrator`, and
 `worker`. `kind`
 is the value for `--kind`. `model` is optional. Before you start an agent,
 read the entry for its role:
@@ -179,7 +225,8 @@ Start an orchestrator when the user or the hypervisor asks. Each orchestrator
 gets a new worktree. The main checkout is yours.
 
 1. Choose the name `orch-<topic>`, for example `orch-oncall`. Use lowercase,
-   with a maximum of 32 characters in the full name. No live agent can have it.
+   with a maximum of 32 characters in the full name. No live agent can have
+   it.
 2. Use the base that the request names. Otherwise run
    `git -C <checkout> fetch origin` and use the default branch of `origin`,
    because the local branch can be behind. A repo with no remote uses its
@@ -232,80 +279,102 @@ herdr agent prompt orch-<topic> "<first prompt>" --wait --timeout 20000
 
 A `timeout` result is normal. Check the state with `herdr agent get`.
 
-## Executors
+## Workers
 
-An executor is an agent with a name that starts with `exec-`. It does one
-small task, reports to you, and stops. It has no worktree and no workers.
-You own the executors that you start.
+You own the workers that you start. Each does one small task and reports to
+you.
+Start one for a question about the repo, its history, or a failure.
+A worker can also write a draft outside the checkout, such as an upstream
+issue.
+Do not let it change files in the repo. Give code changes to an orchestrator.
 
-Start an executor for a small task for your repo that changes no file in the
-repo, for example:
+### Start a worker
 
-- find the cause of a problem, and report it
-- answer a question about the repo, its history, or its pull requests
-- write a draft outside the checkout, for example an issue for an upstream
-  project
-
-A task that changes code in the repo is for an orchestrator. Do not give it
-to an executor.
-
-### Start an executor
-
-1. Choose the name `exec-<task>`, for example `exec-flaky-test`. Use
-   lowercase, with a maximum of 32 characters in the full name. No live agent
-   can have it.
-2. Make a tab in your workspace, in your checkout:
+1. Choose `work-<task>`, for example `work-flaky-test`. Use lowercase and at
+   most 32 characters. The name must be free.
+2. Choose a place outside `<checkout>` for plans and drafts. Do not share it
+   with another writer.
+3. Make a tab in your workspace:
 
    ```bash
-   herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label exec-<task> --cwd <checkout> --no-focus
+   herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label work-<task> --cwd <dir> --no-focus
    ```
 
-3. Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. Read the
-   `executor` entry (see "Agent kinds"). Start the agent:
+4. Read `.result.tab.tab_id` and `.result.root_pane.pane_id`.
+5. Read the `worker` entry under "Agent kinds". Start the agent:
 
    ```bash
-   herdr agent start exec-<task> --kind <kind> --pane <root-pane-id>
+   herdr agent start work-<task> --kind <kind> --pane <root-pane-id>
    ```
 
-4. If the start returns `agent_not_ready`, read the pane. Show a folder trust
-   prompt to the user. Do not answer it yourself.
-5. Set the role token and the rank token of the new pane:
+   Add the model flag after `--` if the entry names a model.
+6. If start returns `agent_not_ready`, read the pane. Show a trust prompt to
+   the user. Do not answer it.
+7. Set its tokens:
 
    ```bash
-   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token exec=executor --token rank=2.5
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token worker=worker --token rank=2.5
    ```
 
-6. When the agent is `idle`, send the first prompt:
+8. When the agent is `idle`, send the first prompt:
 
    ```text
-   Load the herdr-executor skill. You are exec-<task>. Your owner is
-   sup-<repo>. Your directory is <checkout>. Keep the name exec-<task>. Do
-   the 'Before you start' steps. The task: <task>. The user's goal: <goal>.
-   Do not edit files in <checkout>. You can change: <files outside the
-   checkout, or "nothing, only read">.
+   Load the herdr-worker skill. You are work-<task>, role task.
+   Your owner is sup-<repo>. Your place is <dir>. Your scope is <scope in checkout>.
+   Your report file is ~/.local/state/herdr-supervisor/<repo>/<worker-name>.md.
+   Your tokens are worker=worker rank=2.5. The task: <task>.
+   The user's goal: <goal>. You can change: <files or settings, or nothing>.
    ```
+
+   Use this command for the first prompt:
+
+   ```bash
+   herdr agent prompt work-<task> "<first prompt>" --wait --until working --until blocked --timeout 10000
+   ```
+
+   Give absolute paths for the place and report file.
+   The prompt must forbid changes in `<checkout>`. The worker can read the
+   checkout.
 
 ### Plans and reports
 
-- An executor sends you its plan before it changes anything. Show the plan
-  to the user in your pane. Send the user's answer to the executor:
+After each prompt, run this as a background Bash command:
 
-  ```bash
-  herdr agent prompt exec-<task> "From <user name>, via sup-<repo>: <answer>"
-  ```
+```bash
+herdr agent wait work-<task>
+```
 
-- Do not approve a plan yourself.
-- When the report comes, tell the user the result in a few lines. If the
-  hypervisor asked for the task, send the result to the hypervisor too.
-- If the executor reports `blocked` because the task grew, recommend an
-  orchestrator for the task.
-- Stop the executor after its report. You do not need a new approval:
+When it ends with `done`, `idle`, or `blocked`, read the report file.
+For `blocked`, read the pane and ask the user.
+If the report contains a plan, show it under "Plans for <user name>'s
+approval".
+Do not approve a plan yourself. Send the user's answer with:
 
-  1. If the executor is a Codex agent, record its IDs. See "Confirm that a Codex agent stopped".
-  2. Send `herdr agent send-keys exec-<task> ctrl+c`.
-  3. Send `herdr agent prompt exec-<task> "/exit"`.
-  4. If the executor is a Codex agent, do the checks in "Confirm that a Codex agent stopped".
-  5. Close its tab with `herdr tab close <tab-id>`.
+```bash
+herdr-send work-<task> "From <user name>, via sup-<repo>: <answer>"
+```
+
+For a `needs-input` report, read the question. Ask the user when a decision is
+necessary.
+If the task grew, recommend an orchestrator.
+Read the `## Misrouted prompts` section, if present.
+Send each copied prompt unchanged to the hypervisor.
+Use the rule under "Message channels".
+The hypervisor relays it to the target.
+
+Check the result and tell the user in a few lines.
+If the hypervisor requested the task, send it the result.
+Use the rule under "Message channels".
+
+### Stop a worker
+
+You can stop your own worker after its final report, without a new approval.
+
+1. For Codex, record its IDs under "Confirm that a Codex agent stopped".
+2. Send `herdr agent send-keys work-<task> ctrl+c`.
+3. Send `herdr agent prompt work-<task> "/exit"`.
+4. For Codex, do the checks under "Confirm that a Codex agent stopped".
+5. Close its tab with `herdr tab close <tab-id>`.
 
 ## Pass on notes from the hypervisor
 
@@ -317,9 +386,11 @@ each note reaches your orchestrators.
    example a merge or a deploy, until that work ends.
 3. Send it to each orchestrator. Say that it comes from the hypervisor:
 
-   ```bash
-   herdr agent prompt orch-<topic> "Note from sup-<repo>, from the hypervisor: <note>"
+   ```text
+   SendMessage: to=<address for orch-<topic>>, text="Note from sup-<repo>, from the hypervisor: <note>"
    ```
+
+   Use the rule under "Message channels".
 
    If the orchestrator is `blocked`, wait until it is not, then send.
 4. Report in one line in your pane: which orchestrators got the note, and
@@ -353,10 +424,12 @@ Do this only when the user asks.
 
 1. Read the orchestrator's pane. If it has running workers, tell the user,
    and ask if the orchestrator must stop them first.
-2. If the orchestrator is a Codex agent, record its IDs. See "Confirm that a Codex agent stopped".
+2. If the orchestrator is a Codex agent, record its IDs. See "Confirm that a
+   Codex agent stopped".
 3. Send `herdr agent send-keys orch-<topic> ctrl+c`, or tell the user to exit
    it.
-4. If the orchestrator is a Codex agent, do the checks in "Confirm that a Codex agent stopped".
+4. If the orchestrator is a Codex agent, do the checks in "Confirm that a
+   Codex agent stopped".
 5. Close its workspace only if you created it, and only after the user
    agrees. Remove its worktree only when the user tells you to.
 
@@ -396,5 +469,5 @@ you stop a Codex agent.
   a question about order.
 - Do not close a pane, a tab, a workspace, or a worktree that you did not
   create.
-- Do not prompt the executors of the hypervisor or of other supervisors.
+- Do not prompt the workers of the hypervisor or of other supervisors.
 - Do not use `--trust-repository` unless the user tells you to.
