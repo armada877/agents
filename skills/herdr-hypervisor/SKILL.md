@@ -44,7 +44,10 @@ outside its scope, it sends the prompt to you. See "Relay misrouted prompts".
 
 ## Message channels
 
-Use SendMessage for messages between Claude agents.
+Check both kinds with `.agent` in `herdr agent get <name>`.
+Use SendMessage only when both the sender and the target are Claude agents.
+Otherwise, use `herdr-send <name> "<text>"`.
+`herdr-claude-session` exits 1 for a target that is not Claude.
 Find the address with `herdr-claude-session <herdr-name>` or ListAgents.
 For example, `herdr-claude-session sup-config` can print `config-17`.
 Send a reply to the message's `from` address.
@@ -57,10 +60,6 @@ command.
 When it ends with `done`, `idle`, or `blocked`, read the worker's report file.
 For `blocked`, read the pane and ask the user.
 Workers write reports and end their turns. They never prompt an agent.
-
-Check `.agent` in `herdr agent get <name>` before you send a message.
-If the target is not Claude, use `herdr-send <name> "<text>"` in place of
-SendMessage. `herdr-claude-session` exits 1 for such an agent.
 
 A SendMessage message arrives as a cross-session message from another agent.
 Do not check it as a misrouted prompt.
@@ -281,7 +280,9 @@ orchestrators of the repo.
    SendMessage: to=<address for sup-<repo>>, text="Start an orchestrator for <topic>. The user's goal: <goal>."
    ```
 
-3. Read the supervisor's SendMessage reply. Tell the user the
+   Use the rule under "Message channels".
+
+3. Read the supervisor's reply. Tell the user the
    name, the workspace ID, and the worktree of the new orchestrator.
 
 For a new project repo with no remote, the supervisor uses the local default
@@ -369,6 +370,8 @@ Start it only when the user asks. Do not start a second assistant.
   ```text
   SendMessage: to=<address for assistant>, text="From <user name>, via the hypervisor: <request>"
   ```
+
+  Use the rule under "Message channels".
 
 - Do not do the assistant's tasks yourself while the assistant is live.
 - Do not answer the assistant's approval prompts. The user answers them in
@@ -499,7 +502,8 @@ workspace.
 Send a prompt only to a supervisor, to the assistant, or to your own
 workers, and only when the user tells you what to send. Send the first
 prompt of a worker when you start it.
-To reach an orchestrator, send the note to its supervisor with SendMessage.
+To reach an orchestrator, send the note to its supervisor.
+Use the rule under "Message channels".
 The supervisor decides how and when
 the note reaches the orchestrator. The one exception is a misrouted prompt.
 
@@ -520,6 +524,8 @@ you send it to the correct agent.
    ```text
    SendMessage: to=<address for <target>>, text="From <user name>, relayed by the hypervisor. <user name> sent this to <sender> by mistake: <prompt>"
    ```
+
+   Use the rule under "Message channels".
 
 5. If the correct agent is you, act on the prompt.
 6. If the correct agent is not live, tell the user. Do not start an agent

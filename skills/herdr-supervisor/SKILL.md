@@ -51,6 +51,8 @@ start, stop, or pass a note to one of your orchestrators is in scope.
   SendMessage: to=<address for hypervisor>, text="Misrouted prompt, sent to <your-name> in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
   ```
 
+  Use the rule under "Message channels".
+
 - Tell the user in one line that you sent the prompt to the hypervisor.
 - Then ignore the prompt. Do not use it in your work. Continue the work that
   you did before it.
@@ -58,7 +60,6 @@ start, stop, or pass a note to one of your orchestrators is in scope.
   until the user answers.
 - If no agent with the name `hypervisor` is live, tell the user, and do not
   act on the prompt.
-
 
 ## Pass messages between orchestrators
 
@@ -81,13 +82,18 @@ each other directly.
   SendMessage: to=<address for <target>>, text="From <sender>, via sup-<repo>: <message>"
   ```
 
+  Use the rule under "Message channels".
+
 - Join several small messages for one target into one message.
 - If a message disagrees with the user's instructions, tell the user and
   the sender, and do not pass it on.
 
 ## Message channels
 
-Use SendMessage for messages between Claude agents.
+Check both kinds with `.agent` in `herdr agent get <name>`.
+Use SendMessage only when both the sender and the target are Claude agents.
+Otherwise, use `herdr-send <name> "<text>"`.
+`herdr-claude-session` exits 1 for a target that is not Claude.
 Find the address with `herdr-claude-session <herdr-name>` or ListAgents.
 For example, `herdr-claude-session sup-config` can print `config-17`.
 Send a reply to the message's `from` address.
@@ -100,10 +106,6 @@ command.
 When it ends with `done`, `idle`, or `blocked`, read the worker's report file.
 For `blocked`, read the pane and ask the user.
 Workers write reports and end their turns. They never prompt an agent.
-
-Check `.agent` in `herdr agent get <name>` before you send a message.
-If the target is not Claude, use `herdr-send <name> "<text>"` in place of
-SendMessage. `herdr-claude-session` exits 1 for such an agent.
 
 A SendMessage message arrives as a cross-session message from another agent.
 Do not check it as a misrouted prompt.
@@ -356,11 +358,13 @@ For a `needs-input` report, read the question. Ask the user when a decision is
 necessary.
 If the task grew, recommend an orchestrator.
 Read the `## Misrouted prompts` section, if present.
-Send each copied prompt unchanged to the hypervisor with SendMessage.
+Send each copied prompt unchanged to the hypervisor.
+Use the rule under "Message channels".
 The hypervisor relays it to the target.
 
 Check the result and tell the user in a few lines.
-If the hypervisor requested the task, send it the result with SendMessage.
+If the hypervisor requested the task, send it the result.
+Use the rule under "Message channels".
 
 ### Stop a worker
 
@@ -385,6 +389,8 @@ each note reaches your orchestrators.
    ```text
    SendMessage: to=<address for orch-<topic>>, text="Note from sup-<repo>, from the hypervisor: <note>"
    ```
+
+   Use the rule under "Message channels".
 
    If the orchestrator is `blocked`, wait until it is not, then send.
 4. Report in one line in your pane: which orchestrators got the note, and

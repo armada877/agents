@@ -104,7 +104,12 @@ Give the reason in one sentence. Your owner decides who takes the work.
 Your owner sends a Codex worker follow-ups with `herdr-send <worker>
 "<text>"`.
 The first prompt after agent start can use `herdr agent prompt`.
-Claude owners use SendMessage for messages to other Claude agents.
+These rules apply only to owners who send messages:
+
+Check both kinds with `.agent` in `herdr agent get <name>`.
+Use SendMessage only when both the sender and the target are Claude agents.
+Otherwise, use `herdr-send <name> "<text>"`.
+`herdr-claude-session` exits 1 for a target that is not Claude.
 They find the address with `herdr-claude-session <herdr-name>` or ListAgents.
 A reply goes to the message's `from` address.
 
@@ -114,12 +119,6 @@ Bash command.
 When it ends with `done`, `idle`, or `blocked`, the owner reads your report.
 For `blocked`, the owner reads the pane and asks the user.
 
-These rules apply to owners who send messages:
-
-Check `.agent` in `herdr agent get <name>` before you send a message.
-If the target is not Claude, use `herdr-send <name> "<text>"` in place of
-SendMessage. `herdr-claude-session` exits 1 for such an agent.
-
 ## Prompts for a different agent
 
 Check each user prompt against your scope. A prompt from your owner is in
@@ -127,8 +126,8 @@ scope.
 If a prompt is for another agent, do not act on it.
 Copy it unchanged into a `## Misrouted prompts` section of your report.
 Add a one-sentence reason and end your turn.
-Your owner sends it to the hypervisor with SendMessage, or relays it if it is
-the hypervisor.
+Your owner sends it to the hypervisor under "Message channels".
+If your owner is the hypervisor, it relays the prompt.
 If the target is unclear, report `needs-input` with the prompt and your
 question.
 

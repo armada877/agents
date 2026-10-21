@@ -36,7 +36,10 @@ rules, for example which tasks are yours and which actions need approval.
 
 ## Message channels
 
-Use SendMessage for messages between Claude agents.
+Check both kinds with `.agent` in `herdr agent get <name>`.
+Use SendMessage only when both the sender and the target are Claude agents.
+Otherwise, use `herdr-send <name> "<text>"`.
+`herdr-claude-session` exits 1 for a target that is not Claude.
 Find the address with `herdr-claude-session <herdr-name>` or ListAgents.
 For example, `herdr-claude-session sup-config` can print `config-17`.
 Send a reply to the message's `from` address.
@@ -47,10 +50,6 @@ Owners use `herdr-send <worker> "<text>"` for Codex workers.
 Workers report through files. Their owners run background waits and read
 reports.
 You do not own workers.
-
-Check `.agent` in `herdr agent get <name>` before you send a message.
-If the target is not Claude, use `herdr-send <name> "<text>"` in place of
-SendMessage. `herdr-claude-session` exits 1 for such an agent.
 
 A SendMessage message arrives as a cross-session message from another agent.
 Do not check it as a misrouted prompt.
@@ -138,6 +137,8 @@ the hypervisor.
   ```text
   SendMessage: to=<address for hypervisor>, text="Misrouted prompt, sent to assistant in <workspace-id>. Reason: <one sentence>. Prompt: <prompt>"
   ```
+
+  Use the rule under "Message channels".
 
 - Tell the user in one line that you sent the prompt to the hypervisor.
 - Then ignore the prompt. Do not use it in your work.
