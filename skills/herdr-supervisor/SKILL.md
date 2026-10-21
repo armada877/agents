@@ -15,6 +15,7 @@ starts its own workers in its own workspace.
 ```
 hypervisor
 └── sup-<repo> (you, main checkout)
+    ├── exec-<task>  (a small task, no code change)
     ├── orch-<topic-1>  (worktree 1)  →  its workers
     └── orch-<topic-2>  (worktree 2)  →  its workers
 ```
@@ -126,6 +127,7 @@ Show one table:
 - Put each worker under the orchestrator in the same workspace.
 - List a worktree with no live agent separately. Mark each `prunable`
   worktree.
+- List your live executors below the table, with their task and status.
 
 Herdr and git are the record of agents and worktrees. Do not keep a separate
 state file for them.
@@ -153,7 +155,8 @@ kind = "codex"
 model = "gpt-6-astra"
 ```
 
-The roles are `hypervisor`, `supervisor`, `orchestrator`, and `worker`. `kind`
+The roles are `hypervisor`, `executor`, `supervisor`, `orchestrator`, and
+`worker`. `kind`
 is the value for `--kind`. `model` is optional. Before you start an agent,
 read the entry for its role:
 
@@ -229,6 +232,78 @@ herdr agent prompt orch-<topic> "<first prompt>" --wait --timeout 20000
 
 A `timeout` result is normal. Check the state with `herdr agent get`.
 
+## Executors
+
+An executor is an agent with a name that starts with `exec-`. It does one
+small task, reports to you, and stops. It has no worktree and no workers.
+You own the executors that you start.
+
+Start an executor for a small task for your repo that changes no file in the
+repo, for example:
+
+- find the cause of a problem, and report it
+- answer a question about the repo, its history, or its pull requests
+- write a draft outside the checkout, for example an issue for an upstream
+  project
+
+A task that changes code in the repo is for an orchestrator. Do not give it
+to an executor.
+
+### Start an executor
+
+1. Choose the name `exec-<task>`, for example `exec-flaky-test`. Use
+   lowercase, with a maximum of 32 characters in the full name. No live agent
+   can have it.
+2. Make a tab in your workspace, in your checkout:
+
+   ```bash
+   herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label exec-<task> --cwd <checkout> --no-focus
+   ```
+
+3. Read `.result.tab.tab_id` and `.result.root_pane.pane_id`. Read the
+   `executor` entry (see "Agent kinds"). Start the agent:
+
+   ```bash
+   herdr agent start exec-<task> --kind <kind> --pane <root-pane-id>
+   ```
+
+4. If the start returns `agent_not_ready`, read the pane. Show a folder trust
+   prompt to the user. Do not answer it yourself.
+5. Set the role token and the rank token of the new pane:
+
+   ```bash
+   herdr pane report-metadata <root-pane-id> --source herdr-roles --agent <kind> --token exec=executor --token rank=2.5
+   ```
+
+6. When the agent is `idle`, send the first prompt:
+
+   ```text
+   Load the herdr-executor skill. You are exec-<task>. Your owner is
+   sup-<repo>. Your directory is <checkout>. Keep the name exec-<task>. Do
+   the 'Before you start' steps. The task: <task>. The user's goal: <goal>.
+   Do not edit files in <checkout>. You can change: <files outside the
+   checkout, or "nothing, only read">.
+   ```
+
+### Plans and reports
+
+- An executor sends you its plan before it changes anything. Show the plan
+  to the user in your pane. Send the user's answer to the executor:
+
+  ```bash
+  herdr agent prompt exec-<task> "From <user name>, via sup-<repo>: <answer>"
+  ```
+
+- Do not approve a plan yourself.
+- When the report comes, tell the user the result in a few lines. If the
+  hypervisor asked for the task, send the result to the hypervisor too.
+- If the executor reports `blocked` because the task grew, recommend an
+  orchestrator for the task.
+- Stop the executor after its report. You do not need a new approval:
+  send `herdr agent send-keys exec-<task> ctrl+c`, then
+  `herdr agent prompt exec-<task> "/exit"`, then close its tab with
+  `herdr tab close <tab-id>`.
+
 ## Pass on notes from the hypervisor
 
 The hypervisor sends its notes for orchestrators only to you. You decide how
@@ -287,4 +362,5 @@ Do this only when the user asks.
   a question about order.
 - Do not close a pane, a tab, a workspace, or a worktree that you did not
   create.
+- Do not prompt the executors of the hypervisor or of other supervisors.
 - Do not use `--trust-repository` unless the user tells you to.
