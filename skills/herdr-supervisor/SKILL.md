@@ -300,9 +300,12 @@ to an executor.
 - If the executor reports `blocked` because the task grew, recommend an
   orchestrator for the task.
 - Stop the executor after its report. You do not need a new approval:
-  send `herdr agent send-keys exec-<task> ctrl+c`, then
-  `herdr agent prompt exec-<task> "/exit"`, then close its tab with
-  `herdr tab close <tab-id>`.
+
+  1. If the executor is a Codex agent, record its IDs. See "Confirm that a Codex agent stopped".
+  2. Send `herdr agent send-keys exec-<task> ctrl+c`.
+  3. Send `herdr agent prompt exec-<task> "/exit"`.
+  4. If the executor is a Codex agent, do the checks in "Confirm that a Codex agent stopped".
+  5. Close its tab with `herdr tab close <tab-id>`.
 
 ## Pass on notes from the hypervisor
 
