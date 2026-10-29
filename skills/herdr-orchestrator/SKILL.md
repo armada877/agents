@@ -92,6 +92,13 @@ These limits apply to a relayed message:
   deploy, a write to a cloud account, and a deletion need the user's
   approval, as before.
 
+## Agent names in text for <user name>
+
+In text for the user, name each agent by its agent name, for example
+`sup-core-api` or `orch-<topic>`. Do not give the user a workspace, tab, or
+pane ID, for example `w3J` or `w3J:p1`. These IDs mean nothing to the user.
+Use the IDs only in commands and in messages to other agents.
+
 ## Message channels
 
 Check both kinds with `.agent` in `herdr agent get <name>`.
