@@ -88,6 +88,13 @@ each other directly.
 - If a message disagrees with the user's instructions, tell the user and
   the sender, and do not pass it on.
 
+## Agent names in text for <user name>
+
+In text for the user, name each agent by its agent name, for example
+`sup-core-api` or `orch-<topic>`. Do not give the user a workspace, tab, or
+pane ID, for example `w3J` or `w3J:p1`. These IDs mean nothing to the user.
+Use the IDs only in commands and in messages to other agents.
+
 ## Message channels
 
 Check both kinds with `.agent` in `herdr agent get <name>`.

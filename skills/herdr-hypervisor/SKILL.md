@@ -42,6 +42,13 @@ such as email. See "The assistant". A worker does one small task for you
 or for a supervisor. See "Workers". When an agent gets a prompt that is
 outside its scope, it sends the prompt to you. See "Relay misrouted prompts".
 
+## Agent names in text for <user name>
+
+In text for the user, name each agent by its agent name, for example
+`sup-core-api` or `orch-<topic>`. Do not give the user a workspace, tab, or
+pane ID, for example `w3J` or `w3J:p1`. These IDs mean nothing to the user.
+Use the IDs only in commands and in messages to other agents.
+
 ## Message channels
 
 Check both kinds with `.agent` in `herdr agent get <name>`.
@@ -282,8 +289,8 @@ orchestrators of the repo.
 
    Use the rule under "Message channels".
 
-3. Read the supervisor's reply. Tell the user the
-   name, the workspace ID, and the worktree of the new orchestrator.
+3. Read the supervisor's reply. Tell the user the name and the worktree of
+   the new orchestrator.
 
 For a new project repo with no remote, the supervisor uses the local default
 branch as the base.
@@ -481,8 +488,8 @@ You can stop your own worker after its final report, without a new approval.
 ## Monitor
 
 When the user asks for status, show one line for each orchestrator. Group the
-lines under the supervisor of each repo. Give the topic, the worktree, the
-workspace ID, and the state.
+lines under the supervisor of each repo. Give the agent name, the topic, the
+worktree, and the state.
 If the assistant is live, show one line for it first. Then show one line for
 each of your workers. Show the workers of a supervisor under that
 supervisor.
@@ -493,7 +500,7 @@ supervisor.
   `herdr agent read <name> --source recent-unwrapped --lines 60`
   and summarise them.
 - `blocked`: the agent asks a question, or waits for an approval. Read the
-  pane, and tell the user what it asks and in which workspace.
+  pane, and tell the user what it asks. Name the agent.
 
 Do not answer the questions or approval prompts of a supervisor, an
 orchestrator, or the assistant. The user answers them in the agent's
