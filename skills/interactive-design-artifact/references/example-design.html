@@ -1,0 +1,529 @@
+<title>Partner Passes Design</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a compact header and a sticky tab bar; each tab is one screen with a diagram and its detail side by side. */
+:root{
+  --bg:#f2f4f6; --surface:#ffffff; --ink:#121920; --soft:#36424e; --muted:#5d6975; --line:#d6dde3;
+  --accent:#1f6feb; --accent-soft:#e3edfd; --dev:#0b7a5c; --dev-soft:#dcf1e9;
+  --loc:#9a5300; --loc-soft:#fbecd6; --user:#7438bd; --user-soft:#efe5fb;
+  --bad:#c0301a; --bad-soft:#fbe3de; --chip:#e9eef2;
+  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1318; --surface:#161d24; --ink:#e6ecf1; --soft:#c3cdd6; --muted:#97a3af; --line:#2b353f;
+  --accent:#6ca7ff; --accent-soft:#172a4b; --dev:#4fcaa2; --dev-soft:#15362c;
+  --loc:#f1a84d; --loc-soft:#3a2914; --user:#ba8ff3; --user-soft:#2c2140;
+  --bad:#f27c64; --bad-soft:#3d1d17; --chip:#212b35; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1318; --surface:#161d24; --ink:#e6ecf1; --soft:#c3cdd6; --muted:#97a3af; --line:#2b353f;
+  --accent:#6ca7ff; --accent-soft:#172a4b; --dev:#4fcaa2; --dev-soft:#15362c;
+  --loc:#f1a84d; --loc-soft:#3a2914; --user:#ba8ff3; --user-soft:#2c2140;
+  --bad:#f27c64; --bad-soft:#3d1d17; --chip:#212b35; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(20px,2.6vw,26px)}
+h2{font-size:21px}
+h3{font-size:16px}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+.eyebrow{font:500 11px/1.2 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted)}
+.ok{color:var(--dev)}.err{color:var(--bad)}
+/* header */
+header{padding-block:10px 6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
+.hdr{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.facts{display:flex;flex-wrap:wrap;gap:4px}
+.fact{font-size:12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:1px 9px;color:var(--soft)}
+.fact b{color:var(--ink);font-weight:600}
+/* tabs */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.tabbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.tab{font:600 14px var(--f-body);background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:7px 12px 6px;cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .n{font:500 11px var(--f-mono);color:var(--muted);margin-right:6px}
+main{padding-block:10px 32px}
+section[role=tabpanel]:not([hidden]){display:grid;gap:10px}
+.sec-h{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 14px}
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.panel>h3{margin-bottom:8px}
+.scroll{overflow-x:auto}
+.two{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px;align-items:start}
+.two.api{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+.half{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.quad{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:860px){.two,.two.api,.half,.quad{grid-template-columns:1fr}}
+/* controls */
+button{font:inherit;color:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn{font:500 13px var(--f-body);border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:6px 11px;cursor:pointer}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.ghost{background:none;border-color:var(--line);color:var(--soft)}
+button:focus-visible,[tabindex]:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tag{display:inline-block;font:500 11px/1.65 var(--f-mono);padding:0 7px;border-radius:4px;background:var(--chip);color:var(--soft);white-space:nowrap}
+.t-dev{background:var(--dev-soft);color:var(--dev)}.t-loc{background:var(--loc-soft);color:var(--loc)}.t-user{background:var(--user-soft);color:var(--user)}.t-acc{background:var(--accent-soft);color:var(--accent)}.t-bad{background:var(--bad-soft);color:var(--bad)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+pre.code{font:12.5px/1.55 var(--f-mono);background:var(--chip);color:var(--ink);border-radius:8px;padding:10px 12px;margin:6px 0 0;overflow-x:auto;white-space:pre}
+.list{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+.list li{display:grid;grid-template-columns:22px 1fr;gap:8px;font-size:14px;color:var(--soft)}
+.list li b{color:var(--ink)}
+.num{font:600 12px/22px var(--f-mono);text-align:center;border-radius:50%;background:var(--accent-soft);color:var(--accent);width:22px;height:22px}
+svg text{font-family:var(--f-body)}
+.tabrow{display:flex;align-items:center;gap:8px}
+.tabrow .tabs{flex:1;min-width:0}
+.pager{display:flex;gap:6px;flex:none}
+.pager .btn{padding:4px 10px}
+/* overview */
+.terms{display:grid;gap:6px}
+.term{display:grid;grid-template-columns:minmax(0,190px) 1fr;gap:10px;align-items:baseline;font-size:14px}
+@media (max-width:520px){.term{grid-template-columns:1fr;gap:2px}}
+.term .w{font:600 13px var(--f-mono)}
+.ng{display:flex;flex-wrap:wrap;gap:6px}
+.ng span{font-size:13px;border:1px dashed var(--line);border-radius:6px;padding:3px 9px;color:var(--soft)}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.cmp>div{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13.5px}
+.cmp ul{margin:4px 0 0;padding-left:16px}
+/* api */
+.routes{display:grid;gap:2px;max-height:430px;overflow:auto}
+.route{display:grid;grid-template-columns:58px 1fr;gap:8px;align-items:center;text-align:left;border:1px solid transparent;background:none;border-radius:8px;padding:7px 8px;cursor:pointer}
+.route:hover{background:var(--chip)}
+.route[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.route .p{font:500 13px var(--f-mono);word-break:break-all}
+.route .c{grid-column:2;font-size:12px;color:var(--muted)}
+.m{font:600 11px/1.7 var(--f-mono);text-align:center;border-radius:4px;background:var(--chip);color:var(--soft)}
+.m.POST{background:var(--dev-soft);color:var(--dev)}.m.PATCH{background:var(--loc-soft);color:var(--loc)}.m.DELETE{background:var(--bad-soft);color:var(--bad)}.m.GET{background:var(--accent-soft);color:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+/* logic */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.form label{display:grid;gap:3px;font-size:12.5px;color:var(--muted)}
+.form select{font:14px var(--f-body);padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.res{display:flex;align-items:baseline;gap:10px;margin-top:12px}
+.code-big{font:700 30px/1 var(--f-display)}
+.trace{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:4px}
+.trace li{display:grid;grid-template-columns:18px 1fr;gap:6px;font-size:13.5px}
+.trace li span:first-child{font:600 13px var(--f-mono)}
+.trace .pass span:first-child{color:var(--dev)}.trace .fail span:first-child{color:var(--bad)}.trace .skip span:first-child{color:var(--muted)}
+.state{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px}
+@media (max-width:520px){.state{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cell{border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.cell .v{font:600 14px var(--f-mono);margin-top:2px}
+.log{font:12.5px/1.6 var(--f-mono);height:120px;overflow:auto;margin-top:8px;padding:8px 10px;background:var(--chip);border-radius:8px;color:var(--soft)}
+.rules{margin:0;padding-left:18px;font-size:13.5px;color:var(--soft);display:grid;gap:3px}
+/* rollout */
+input[type=range]{width:100%;accent-color:var(--accent)}
+.stages{display:flex;justify-content:space-between;font:500 12px var(--f-mono);color:var(--muted)}
+.risk{display:grid;gap:6px}
+.rrow{display:grid;grid-template-columns:66px 1fr;gap:8px;align-items:start;text-align:left;width:100%;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:7px 9px;cursor:pointer}
+.rrow .more{grid-column:2;font-size:13.5px;color:var(--soft)}
+details.alt{border-top:1px solid var(--line);padding:6px 0}
+details.alt:first-of-type{border-top:0}
+details.alt summary{cursor:pointer;font-size:14px;font-weight:500}
+details.alt p{font-size:13.5px;color:var(--soft);margin-top:4px}
+@media (prefers-reduced-motion:no-preference){.flow-edge,.flow-node{transition:stroke .2s,opacity .2s}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="hdr"><h1>Partner Passes Design</h1><span class="eyebrow">PR #1234 · wallet cards in a later PR</span></div>
+  <div class="facts">
+    <span class="fact"><b>Owner:</b> a partner app</span>
+    <span class="fact"><b>Sites:</b> site staff opt in</span>
+    <span class="fact"><b>Money:</b> payment links, never read by issue</span>
+    <span class="fact"><b>Wallet:</b> one card for each holding, later PR</span>
+    <span class="fact"><b>Names:</b> <code>pass</code> on the partner API · <code>pass</code> in app APIs</span>
+  </div>
+</header>
+</div>
+
+<div class="tabbar"><div class="wrap tabrow"><div class="tabs" role="tablist" aria-label="Design sections" id="tabs"></div><div class="pager"><button type="button" class="btn ghost" id="prev">←</button><button type="button" class="btn" id="next">Next →</button></div></div></div>
+
+<div class="wrap"><main id="main">
+
+<!-- 1 Introduction -->
+<section role="tabpanel" id="p-intro" aria-labelledby="t-intro">
+  <div class="sec-h"><h2>Introduction</h2></div>
+  <div class="two">
+    <div class="panel">
+      <h3>Rationale</h3>
+      <p style="color:var(--soft)">Partners need a pass product that they control. They decide who gets a pass, for what price, and for how long. The platform stores only what it needs to show a holding, check it at a site, and put it in a wallet.</p>
+      <h3 style="margin-top:14px">Background</h3>
+      <p class="hint">This design copies the partner events shape.</p>
+      <div class="cmp">
+        <div><span class="tag">Partner events (exists)</span><ul><li><code>events</code> product</li><li><code>user_events</code> holdings</li><li><code>write:events</code> API key, granted by hand</li></ul></div>
+        <div><span class="tag t-acc">Partner passes (new)</span><ul><li><code>passes</code> product</li><li><code>user_passes</code> holdings</li><li><code>write:passes</code> API key, granted by hand</li></ul></div>
+      </div>
+    </div>
+    <div class="panel scroll">
+      <div class="eyebrow">The model in one picture</div>
+      <svg viewBox="0 0 420 240" style="width:100%;min-width:300px;height:auto;margin-top:6px" role="img" aria-label="A pass with one owner app and two joins: sites and users">
+        <line x1="150" y1="108" x2="95" y2="60" stroke="var(--dev)" stroke-width="2.5"/>
+        <line x1="270" y1="108" x2="325" y2="60" stroke="var(--loc)" stroke-width="2.5"/>
+        <line x1="210" y1="146" x2="210" y2="178" stroke="var(--user)" stroke-width="2.5"/>
+        <path d="M150 60 C 180 95, 150 160, 160 180" stroke="var(--dev)" stroke-dasharray="4 4" fill="none" stroke-width="1.5"/>
+        <path d="M270 60 C 240 95, 270 160, 260 180" stroke="var(--loc)" stroke-dasharray="4 4" fill="none" stroke-width="1.5"/>
+        <rect x="140" y="92" width="140" height="54" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+        <text x="210" y="116" text-anchor="middle" font-size="15" font-weight="600" fill="var(--ink)">pass</text>
+        <text x="210" y="134" text-anchor="middle" font-size="11.5" fill="var(--muted)">passes</text>
+        <rect x="10" y="12" width="150" height="48" rx="8" fill="var(--dev-soft)" stroke="var(--dev)"/>
+        <text x="85" y="33" text-anchor="middle" font-size="13.5" font-weight="600" fill="var(--dev)">owner app</text>
+        <text x="85" y="50" text-anchor="middle" font-size="11" fill="var(--soft)">the only issuer</text>
+        <rect x="260" y="12" width="150" height="48" rx="8" fill="var(--loc-soft)" stroke="var(--loc)"/>
+        <text x="335" y="33" text-anchor="middle" font-size="13.5" font-weight="600" fill="var(--loc)">partner sites</text>
+        <text x="335" y="50" text-anchor="middle" font-size="11" fill="var(--soft)">where it is honored</text>
+        <rect x="135" y="178" width="150" height="48" rx="8" fill="var(--user-soft)" stroke="var(--user)"/>
+        <text x="210" y="199" text-anchor="middle" font-size="13.5" font-weight="600" fill="var(--user)">users</text>
+        <text x="210" y="216" text-anchor="middle" font-size="11" fill="var(--soft)">holdings + wallet card</text>
+      </svg>
+      <p class="hint">Dashed: a holding must name the owner app and a linked site.</p>
+    </div>
+  </div>
+  <div class="half">
+    <div class="panel">
+      <div class="sec-h"><h3>Terminology</h3><div class="chips" id="vocPick" role="group" aria-label="Choose an API surface"></div></div>
+      <div class="terms" id="voc" style="margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <h3>Non-Goals</h3>
+      <div class="ng" id="ng"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 Architecture -->
+<section role="tabpanel" id="p-arch" aria-labelledby="t-arch" hidden>
+  <h2 style="font-size:18px">Proposed Design</h2>
+  <p style="color:var(--soft);font-size:14px;max-width:none"><b style="color:var(--ink)">Summary.</b> Three new tables: <code>passes</code> and two joins for partner sites and users. Each pass has one partner app, the owner. It manages the pass with an API key and is the only app that issues it. A site joins only when site staff opt it in, with the owner app's staff JWT. Only the owner issues and revokes holdings. A holding has no expiry: the app manages the term. After commit, a job adds or removes a wallet card for each holding. Issue is idempotent on the partner's <code>external_id</code>. Reads use the read replica.</p>
+  <div class="sec-h"><h3>System Architecture</h3><div class="chips" id="flowPick" role="group" aria-label="Choose a request"></div></div>
+  <div class="two">
+    <div class="panel scroll"><svg id="arch" viewBox="0 0 750 345" style="width:100%;min-width:540px;height:auto" role="img" aria-label="System architecture with the selected request highlighted"></svg></div>
+    <div class="panel"><div class="eyebrow" id="flowName"></div><ol class="list" id="flowSteps" style="margin-top:8px"></ol><p class="hint" id="flowCode" style="margin-top:10px"></p></div>
+  </div>
+</section>
+
+<!-- 3 Data model -->
+<section role="tabpanel" id="p-data" aria-labelledby="t-data" hidden>
+  <div class="sec-h"><h3>Data Model</h3><div class="chips"><button type="button" class="chip" id="fkToggle" aria-pressed="false">Show composite foreign keys</button></div></div>
+  <div class="two">
+    <div class="panel scroll"><svg id="er" viewBox="0 0 760 390" style="width:100%;min-width:540px;height:auto" role="img" aria-label="Entity diagram. Select a table for its columns."></svg><p class="hint">Click a table.</p></div>
+    <div class="panel" id="erDetail" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- 4 API -->
+<section role="tabpanel" id="p-api" aria-labelledby="t-api" hidden>
+  <div class="sec-h"><h3>Interface/API Definitions</h3><div class="chips" id="apiPick" role="group" aria-label="Choose a surface"></div></div>
+  <div class="two api">
+    <div class="panel"><div class="routes" id="apiList"></div></div>
+    <div class="panel" id="apiDetail" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- 5 Logic -->
+<section role="tabpanel" id="p-logic" aria-labelledby="t-logic" hidden>
+  <div class="sec-h"><h3>Business Logic</h3></div>
+  <div class="half">
+    <div class="panel">
+      <div class="eyebrow">Issue simulator · POST /partner/v1/passes/{passId}/issue</div>
+      <form class="form" id="simForm" style="margin-top:10px">
+        <label for="s-link">Caller<select id="s-link"><option value="y">The owner app</option><option value="n">Another app</option></select></label>
+        <label for="s-loc">site_id<select id="s-loc"><option value="on">On the pass</option><option value="removed">On the pass, removed</option><option value="off">Not on the pass</option></select></label>
+        <label for="s-user">user_id<select id="s-user"><option value="y">Exists</option><option value="n">Unknown</option></select></label>
+        <label for="s-fmt">external_id format<select id="s-fmt"><option value="ok">1 to 255 characters</option><option value="bad">Blank, or over 255</option></select></label>
+        <label for="s-act">Pass active<select id="s-act"><option value="y">Yes</option><option value="n">No (PATCH active: false)</option></select></label>
+        <label for="s-ext">external_id<select id="s-ext"><option value="new">New</option><option value="same">Seen, same body (retry)</option><option value="diff">Seen, different body</option><option value="race">New, parallel call wins</option></select></label>
+      </form>
+      <div class="res" aria-live="polite"><span class="code-big" id="simCode"></span><span id="simMsg"></span></div>
+      <ul class="trace" id="simTrace"></ul>
+    </div>
+    <div class="panel">
+      <div class="eyebrow">Holding and wallet card lifecycle</div>
+      <div class="chips" id="smBtns" style="margin-top:10px"></div>
+      <div class="state">
+        <div class="cell"><div class="eyebrow">Holding</div><div class="v" id="smH"></div></div>
+        <div class="cell"><div class="eyebrow">Valid</div><div class="v" id="smV"></div></div>
+        <div class="cell"><div class="eyebrow">revoked_at</div><div class="v" id="smE"></div></div>
+        <div class="cell"><div class="eyebrow">Card</div><div class="v" id="smT"></div></div>
+      </div>
+      <div class="log" id="smLog" aria-live="polite"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="eyebrow">Rules</div>
+    <ul class="rules" style="margin-top:6px">
+      <li>A partner app owns the pass (<code>owner_app_id</code>). It manages the pass with its API key and is the only issuer. It cannot add a site.</li><li>Staff opt in a site where they work, through the owner app's staff JWT. Any other app's token, or another site: 404. Staff or the owner app can remove a site.</li>
+      <li>Only the owner issues and revokes. Any other app gets 404. A composite key to <code>passes (pass_id, owner_app_id)</code> makes the database refuse a holding from another app.</li>
+      <li>Valid = <code>revoked_at</code> is null. A holding has no expiry: the app manages the term and revokes. No worker.</li>
+      <li>The owner app can read its holders' names on issue, on the holdings list, and on revoke.</li>
+      <li>Issue and revoke make no network call in the transaction. Wallet work runs after commit. A failed wallet call sets <code>FAILED</code>, keeps <code>pending_operation</code>, alerts, and retries. The holding stays valid.</li>
+      <li>Catch the unique violation on <code>(app_id, external_id)</code>. Do not use <code>ON CONFLICT DO NOTHING</code>: it burns sequence values.</li>
+      <li>All reads run on the read replica, including the staff site check. Use one clock helper for "now".</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 6 Rollout and risks -->
+<section role="tabpanel" id="p-roll" aria-labelledby="t-roll" hidden>
+  <div class="half">
+    <div class="panel">
+      <h3>Migration Strategy</h3>
+      <p class="hint">All tables are new. The migration only adds. Drag through the PRs.</p>
+      <input type="range" id="mig" min="0" max="2" value="1" step="1" aria-label="Release stage" style="margin-top:10px">
+      <div class="stages"><span>Today</span><span>PR 1 · #1234</span><span>PR 2 · wallet</span></div>
+      <table id="migTable" style="margin-top:8px"><tbody></tbody></table>
+    </div>
+    <div class="panel">
+      <h2 style="font-size:16px">Impact</h2>
+      <table style="margin-top:8px">
+        <tr><td><b>Performance</b></td><td>Paged reads on indexes, on the replica. Issue is one short transaction.</td></tr>
+        <tr><td><b>Security</b></td><td>Write scopes are not self-service. An approved app can issue to any user and attach any partner site, the same trust as <code>write:events</code>.</td></tr>
+        <tr><td><b>Money</b></td><td>None on this path.</td></tr>
+        <tr><td><b>Cost</b></td><td>One wallet call for each issue and revoke. Only the standard partner rate limit.</td></tr>
+        <tr><td><b>Checks</b></td><td>The OpenAPI spec gets the new routes. Review the replica reads and the migration.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="half">
+    <div class="panel">
+      <h2 style="font-size:16px">Risks</h2>
+      <p class="hint" style="margin-bottom:8px">Click a risk for detail.</p>
+      <div class="risk" id="risks"></div>
+    </div>
+    <div class="panel">
+      <h2 style="font-size:16px">Alternatives</h2>
+      <div id="alts" style="margin-top:6px"></div>
+    </div>
+  </div>
+</section>
+
+</main></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function chips(el,items,cur,onPick){el.innerHTML=items.map(k=>`<button type="button" class="chip" data-k="${k}">${k}</button>`).join("");const set=k=>{el.querySelectorAll(".chip").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===k));onPick(k)};el.addEventListener("click",e=>{const b=e.target.closest(".chip");if(b)set(b.dataset.k)});set(cur)}
+
+/* tabs */
+const TABS=[["intro","Introduction"],["arch","Architecture"],["data","Data model"],["api","API"],["logic","Logic"],["roll","Rollout & risks"]];
+const tabsEl=$("tabs");
+tabsEl.innerHTML=TABS.map(([id,l],i)=>`<button type="button" class="tab" role="tab" id="t-${id}" aria-controls="p-${id}" data-id="${id}"><span class="n">${i+1}</span>${l}</button>`).join("");
+let curTab="intro";
+function showTab(id,focus){if(!TABS.some(t=>t[0]===id))id="intro";curTab=id;
+  TABS.forEach(([t])=>{const on=t===id;$("t-"+t).setAttribute("aria-selected",on);$("t-"+t).tabIndex=on?0:-1;$("p-"+t).hidden=!on});
+  const i=TABS.findIndex(t=>t[0]===id);$("prev").disabled=i===0;$("next").disabled=i===TABS.length-1;
+  $("prev").setAttribute("aria-label",i>0?"Previous: "+TABS[i-1][1]:"Previous");$("next").setAttribute("aria-label",i<TABS.length-1?"Next: "+TABS[i+1][1]:"Next");
+  if(focus)$("t-"+id).focus();
+  if(location.hash!=="#"+id){try{history.replaceState(null,"","#"+id)}catch(e){location.hash=id}}}
+tabsEl.addEventListener("click",e=>{const b=e.target.closest(".tab");if(b)showTab(b.dataset.id)});
+tabsEl.addEventListener("keydown",e=>{const i=TABS.findIndex(t=>t[0]===curTab);if(e.key==="ArrowRight"&&i<TABS.length-1){e.preventDefault();showTab(TABS[i+1][0],true)}if(e.key==="ArrowLeft"&&i>0){e.preventDefault();showTab(TABS[i-1][0],true)}});
+const step=d=>{const i=TABS.findIndex(t=>t[0]===curTab)+d;if(i>=0&&i<TABS.length){showTab(TABS[i][0]);window.scrollTo({top:0})}};
+$("prev").addEventListener("click",()=>step(-1));$("next").addEventListener("click",()=>step(1));
+window.addEventListener("hashchange",()=>showTab(location.hash.slice(1)));
+
+/* terminology */
+const VOC={
+ "Partner API":[["pass","t-acc","The product (passes)."],["owner","t-dev","The one partner app of the pass. It manages the pass and is the only issuer."],["opt-in","t-loc","Site staff attach a site where they work, through the owner app's staff JWT."],["pass_holding","t-user","One user's holding (user_passes)."],["active holding","","revoked_at is null. No expiry: the app manages the term."]],
+ "App APIs":[["pass","t-acc","The product, in /v1 and /admin/v1."],["pass_holding","t-user","One user's holding of it."],["/passes/{id}","t-dev","id is a pass_id."],["partner app","","An app, named by its app_id."]],
+ "Database":[["passes","t-acc","The product table, with owner_app_id."],["user_passes","t-user","Holdings, with composite keys to the pass owner and the site join."],["site_passes","t-loc","The partner sites where the pass is honored."]],
+};
+chips($("vocPick"),Object.keys(VOC),"Partner API",k=>{$("voc").innerHTML=VOC[k].map(([w,c,d])=>`<div class="term"><span class="w"><span class="tag ${c}" style="font-size:12.5px">${w}</span></span><span style="color:var(--soft)">${d}</span></div>`).join("")});
+$("ng").innerHTML=["Payment (payment links stay as they are)","Price, terms, renewal, perks","Ownership transfer","A second issuing app","A pending site request","Per-site consent grant","Holding expiry (the app manages the term)","Non-partner sites","A pass-specific rate limit","Check-in or rewards for passes"].map(t=>`<span>${t}</span>`).join("");
+
+/* architecture */
+const W=160,H=46;
+const N={
+ dev:{x:10,y:30,l:"Partner app",s:"API key",c:"--dev"},
+ member:{x:10,y:140,l:"Member",s:"member JWT",c:"--user"},
+ venue:{x:10,y:210,l:"Site staff",s:"owner app's staff JWT",c:"--loc"},
+ appc:{x:10,y:290,l:"First-party apps",s:"consumer · admin",c:"--muted"},
+ pl:{x:200,y:5,l:"Payment links",s:"exists, no change",c:"--muted"},
+ fw:{x:200,y:80,l:"Pass writes",s:"/passes, /pass_holdings",c:"--accent"},
+ fr:{x:200,y:175,l:"Site + member API",s:"opt-in, reads",c:"--accent"},
+ ar:{x:200,y:290,l:"App API reads",s:"/passes",c:"--accent"},
+ svc:{x:390,y:130,l:"passes module",s:"services",c:"--accent"},
+ db:{x:390,y:275,l:"Postgres",s:"pass tables (cards later)",c:"--accent"},
+ job:{x:580,y:130,l:"Wallet job",s:"later PR, after commit",c:"--accent"},
+ chain:{x:580,y:30,l:"Wallet provider",s:"external service",c:"--accent"},
+};
+const E=[["dev","pl"],["dev","fw"],["fw","svc"],["svc","db"],["svc","job"],["job","chain"],["job","db"],["member","fr"],["venue","fr"],["fr","db"],["fr","svc"],["appc","ar"],["ar","db"]];
+const FLOWS={
+ "Pay":{e:[["dev","pl"]],s:["Partner creates a payment link (POST /partner/v1/payment_links).","User pays. The payee is set on the link; the app gets its fee.","Partner learns of the payment by webhook or poll.","No pass code runs."],c:"Existing payment link routes. No change."},
+ "Create":{e:[["dev","fw"],["fw","svc"],["svc","db"]],s:["POST /passes with name, description, image_url. No sites.","Insert the pass with owner_app_id = caller.","One transaction. Return the pass."],c:"Pattern: CreateEventService."},
+ "Opt in site":{e:[["venue","fr"],["fr","svc"],["svc","db"]],s:["Staff call POST /sites/me/passes/{passId}/sites with site_id.","404 unless the token's app_id is the owner app and the site is one of the staff member's sites.","Insert the site row, or clear removed_at. DELETE on the same path opts out."],c:"Scope write:site_passes."},
+ "Issue":{e:[["dev","fw"],["fw","svc"],["svc","db"],["svc","job"],["job","chain"],["job","db"]],s:["Partner calls POST /passes/{passId}/issue after the payment.","Check that the caller is the owner, then the site, the user, and external_id.","Insert the holding. Commit. Return 201.","Later PR: a card row PENDING, then the job adds the card to the user's wallet after commit."],c:"Pattern: IssueRewardController (an API key names a user_id)."},
+ "Revoke":{e:[["dev","fw"],["fw","svc"],["svc","db"],["svc","job"],["job","chain"],["job","db"]],s:["POST /pass_holdings/{id}/revoke.","Only the owner. Set revoked_at. Commit.","Later PR: the job removes the card. It becomes REMOVED."],c:"A refund on the partner side ends here."},
+ "Member read":{e:[["member","fr"],["fr","db"]],s:["GET /partner/v1/users/me/passes.","Identity comes from the token, never from a parameter.","The user's holdings, paged, on the replica."],c:"MemberPassController."},
+ "Site read":{e:[["venue","fr"],["fr","db"]],s:["GET /sites/me/passes or /passes/{passId}/holders.","Resolve the staff member's sites.","403 unless one of those sites is on the pass. The check runs on the replica."],c:"SitePassController."},
+ "App read":{e:[["appc","ar"],["ar","db"]],s:["GET /v1/users/me/passes or /admin/v1/passes.","Paged, on the replica."],c:"New consumer and admin controllers."},
+};
+function drawArch(sel){
+  const f=FLOWS[sel],hotE=new Set(f.e.map(([a,b])=>a+">"+b)),hotN=new Set(f.e.flat());
+  let s=`<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker></defs>`;
+  const edge=(A,B)=>{const ax=A.x+W/2,ay=A.y+H/2,bx=B.x+W/2,by=B.y+H/2;const dx=bx-ax,dy=by-ay;const t=Math.min(Math.abs((W/2)/(dx||1e-6)),Math.abs((H/2)/(dy||1e-6)));return [bx-dx*t,by-dy*t,ax+dx*t,ay+dy*t]};
+  E.forEach(([a,b])=>{const A=N[a],B=N[b],hot=hotE.has(a+">"+b);const [x2,y2,x1,y1]=edge(A,B);s+=`<line class="flow-edge" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${hot?"var(--accent)":"var(--line)"}" stroke-width="${hot?3:1.5}" ${hot?'marker-end="url(#ah)"':""}/>`});
+  Object.entries(N).forEach(([k,n])=>{const hot=hotN.has(k);s+=`<g class="flow-node" opacity="${hot?1:.4}"><rect x="${n.x}" y="${n.y}" width="${W}" height="${H}" rx="8" fill="var(--surface)" stroke="var(${n.c})" stroke-width="${hot?2.5:1.2}"/><text x="${n.x+W/2}" y="${n.y+20}" text-anchor="middle" font-size="13.5" font-weight="600" fill="var(--ink)">${n.l}</text><text x="${n.x+W/2}" y="${n.y+36}" text-anchor="middle" font-size="11" fill="var(--soft)">${n.s}</text></g>`});
+  $("arch").innerHTML=s;$("flowName").textContent=sel+" request";$("flowSteps").innerHTML=f.s.map((x,i)=>`<li><span class="num">${i+1}</span><span>${esc(x)}</span></li>`).join("");$("flowCode").textContent=f.c;
+}
+chips($("flowPick"),Object.keys(FLOWS),"Issue",drawArch);
+
+/* ER */
+const T={
+ partner_apps:{x:20,y:12,c:"--dev",exist:1,cols:[["app_id","uuid UNIQUE"]],note:"Existing table. An app owns passes and is their only issuer."},
+ passes:{x:290,y:125,c:"--accent",cols:[["pass_id","uuid UNIQUE"],["owner_app_id","uuid NOT NULL FK partner_apps"],["name, description, image_url","text"],["active","boolean"],["created_at, updated_at","timestamptz"],["UNIQUE","(pass_id, owner_app_id): target of the holding key"]],note:"The product and its one app, the owner and only issuer. No price, terms, or renewal.",sql:`CREATE TABLE passes (
+  id           bigserial PRIMARY KEY,
+  pass_id      uuid NOT NULL UNIQUE,
+  owner_app_id uuid NOT NULL REFERENCES partner_apps (app_id),
+  name         text NOT NULL,
+  description  text NOT NULL,
+  image_url    text NOT NULL,
+  active       boolean NOT NULL DEFAULT true,
+  created_at   timestamptz NOT NULL,
+  updated_at   timestamptz NOT NULL,
+  CONSTRAINT uq_passes_pass_owner
+    UNIQUE (pass_id, owner_app_id)
+);
+CREATE INDEX idx_passes_owner ON passes (owner_app_id);`},
+ sites:{x:560,y:12,c:"--loc",exist:1,cols:[["id","uuid PK"],["partner","boolean, true for a live partner site"]],note:"Existing table. Only live partner sites can be attached."},
+ site_passes:{x:560,y:125,c:"--loc",cols:[["id","bigserial PK"],["pass_id","uuid FK"],["site_id","uuid FK sites"],["removed_at","timestamptz, null = attached"],["created_at","timestamptz"],["UNIQUE","(pass_id, site_id)"]],note:"The partner sites where the pass is honored. Soft remove keeps old holdings valid.",sql:`CREATE TABLE site_passes (\n  id         bigserial PRIMARY KEY,\n  pass_id    uuid NOT NULL REFERENCES passes (pass_id),\n  site_id    uuid NOT NULL REFERENCES sites (id),\n  removed_at timestamptz,\n  created_at timestamptz NOT NULL,\n  UNIQUE (pass_id, site_id)\n);\nCREATE INDEX idx_site_passes_site\n  ON site_passes (site_id);`},
+ user_passes:{x:290,y:280,c:"--user",cols:[["user_pass_id","uuid UNIQUE"],["pass_id, app_id","FK → passes (pass, owner)"],["pass_id, site_id","FK → site link"],["user_id","uuid FK users"],["external_id","text, UNIQUE with app_id"],["issued_at, revoked_at","timestamptz; no expiry, the app manages the term"]],note:"One row for each issue. Indexes on (user_id, created_at) and (pass_id, created_at).",sql:`CREATE TABLE user_passes (\n  id           bigserial PRIMARY KEY,\n  user_pass_id uuid NOT NULL UNIQUE,\n  pass_id      uuid NOT NULL,\n  app_id       uuid NOT NULL,\n  site_id      uuid NOT NULL,\n  user_id      uuid NOT NULL REFERENCES users (user_id),\n  external_id  text NOT NULL,\n  issued_at    timestamptz NOT NULL,\n  revoked_at   timestamptz,\n  created_at   timestamptz NOT NULL,\n  updated_at   timestamptz NOT NULL,\n  CONSTRAINT uq_user_passes_app_external\n    UNIQUE (app_id, external_id),\n  CONSTRAINT fk_user_passes_issuer FOREIGN KEY (pass_id, app_id)\n    REFERENCES passes (pass_id, owner_app_id),\n  CONSTRAINT fk_user_passes_site FOREIGN KEY (pass_id, site_id)\n    REFERENCES site_passes (pass_id, site_id)\n);\nCREATE INDEX idx_user_passes_user\n  ON user_passes (user_id, created_at DESC);\nCREATE INDEX idx_user_passes_pass\n  ON user_passes (pass_id, created_at DESC);\n-- The issue service catches a race by the constraint name\n-- uq_user_passes_app_external.`},
+ pass_wallet_cards:{x:560,y:295,c:"--user",cols:[["user_pass_id","uuid UNIQUE FK, one card per holding"],["provider_card_id","text, null until added"],["status","PENDING · ADDED · FAILED · REMOVED"],["pending_operation","ADD · REMOVE, null when done"],["last_error","text"]],note:"New table for the later wallet PR.",sql:`CREATE TABLE pass_wallet_cards (\n  id                bigserial PRIMARY KEY,\n  user_pass_id      uuid NOT NULL UNIQUE\n                    REFERENCES user_passes (user_pass_id),\n  provider_card_id  text UNIQUE,\n  status            text NOT NULL CHECK (status IN\n                    ('PENDING', 'ADDED', 'FAILED', 'REMOVED')),\n  pending_operation text CHECK (pending_operation IN ('ADD', 'REMOVE')),\n  last_error        text,\n  created_at        timestamptz NOT NULL,\n  updated_at        timestamptz NOT NULL\n);\nCREATE INDEX idx_pass_wallet_cards_pending\n  ON pass_wallet_cards (updated_at)\n  WHERE pending_operation IS NOT NULL;`},
+ users:{x:20,y:295,c:"--muted",exist:1,cols:[["user_id","uuid PK"]],note:"Existing table."},
+};
+const R=[["partner_apps","passes",2],["sites","site_passes",0],["passes","site_passes",0],["passes","user_passes",1],["site_passes","user_passes",1],["users","user_passes",0],["user_passes","pass_wallet_cards",0]];
+let erSel="user_passes",fkOn=false;const TW=180,TH=56;
+function drawER(){
+  let s="";
+  R.forEach(([a,b,kind])=>{const A=T[a],B=T[b];const comp=kind===1,own=kind===2;const hot=comp&&fkOn;const rel=a===erSel||b===erSel;s+=`<line x1="${A.x+TW/2}" y1="${A.y+TH/2}" x2="${B.x+TW/2}" y2="${B.y+TH/2}" stroke="${hot?"var(--bad)":own?"var(--loc)":rel?"var(--soft)":"var(--line)"}" stroke-width="${hot?3:rel||own?2:1.5}" ${comp?'stroke-dasharray="6 4"':own?'stroke-dasharray="2 4"':""}/>`;
+    if(own){const mx=(A.x+B.x)/2+TW/2,my=(A.y+B.y)/2+TH/2;s+=`<text x="${mx+6}" y="${my}" font-size="11" fill="var(--loc)">owns</text>`}
+    if(hot){const mx=(A.x+B.x)/2+TW/2,my=(A.y+B.y)/2+TH/2;s+=`<rect x="${mx-70}" y="${my-17}" width="140" height="18" rx="4" fill="var(--surface)"/><text x="${mx}" y="${my-4}" text-anchor="middle" font-size="11.5" fill="var(--bad)" font-family="IBM Plex Mono, monospace">${a==="passes"?"(pass, owner app_id)":"(pass, site_id)"}</text>`}});
+  Object.entries(T).forEach(([k,t])=>{const sel=k===erSel;s+=`<g class="tbl" data-k="${k}" tabindex="0" role="button" aria-label="${k}" aria-pressed="${sel}" style="cursor:pointer"><rect x="${t.x}" y="${t.y}" width="${TW}" height="${TH}" rx="8" fill="${sel?"var(--accent-soft)":"var(--surface)"}" stroke="var(${t.c})" stroke-width="${sel?3:1.5}" ${t.exist?'stroke-dasharray="3 3"':""}/><text x="${t.x+TW/2}" y="${t.y+25}" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--ink)" font-family="IBM Plex Mono, monospace">${k}</text><text x="${t.x+TW/2}" y="${t.y+43}" text-anchor="middle" font-size="11" fill="var(--soft)">${t.exist?"existing":"new"}</text></g>`});
+  $("er").innerHTML=s;
+  $("er").querySelectorAll(".tbl").forEach(g=>{const go=()=>{erSel=g.dataset.k;drawER()};g.addEventListener("click",go);g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}})});
+  const t=T[erSel];
+  $("erDetail").innerHTML=`<div class="eyebrow">${t.exist?"existing table":"new table"}</div><h3 style="font:600 16px var(--f-mono);margin:4px 0 6px">${erSel}</h3><p class="hint">${t.note}</p><table style="margin-top:8px">${t.cols.map(([c,d])=>`<tr><td class="mono">${c}</td><td style="color:var(--soft)">${d}</td></tr>`).join("")}</table>${t.sql?`<details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Show SQL</summary><pre class="code">${esc(t.sql)}</pre></details>`:""}${erSel==="user_passes"?`<p class="hint" style="margin-top:10px">The two composite keys make the database refuse a holding at a site that is not on the pass, or from an app that is not the owner of the pass.</p>`:""}`;
+}
+$("fkToggle").addEventListener("click",e=>{fkOn=!fkOn;e.currentTarget.setAttribute("aria-pressed",fkOn);drawER()});drawER();
+
+/* API */
+const API={
+ "Owner (API key)":[
+  ["POST","/partner/v1/passes","API key · an app granted write:passes by hand","write:passes",`{\n  "name": "Museum Trail",\n  "description": "Five museums, one pass.",\n  "image_url": "https://…/trail.png"\n}`,`{\n  "id": "f3a1…", "object": "pass",\n  "name": "Museum Trail",\n  "image": "https://…/trail.png",\n  "site_ids": [],\n  "status": "active"\n}`,"No sites at create. Staff opt sites in."],
+  ["PATCH","/partner/v1/passes/{passId}","API key · owner","write:passes",`{ "active": false }`,`{ "id": "f3a1…", "object": "pass", "status": "inactive" }`,"404 not the owner"],
+  ["DELETE","/partner/v1/passes/{passId}/sites/{siteId}","API key · owner","write:passes","none","200 with the pass. Soft remove. Old holdings stay valid.","404 not the owner · 422 site not on the pass"],
+ ],
+ "Site opt-in":[
+  ["POST","/partner/v1/sites/me/passes/{passId}/sites","Staff JWT · owner app","write:site_passes",`{ "site_id": "c55d…" }`,`{ "id": "f3a1…", "object": "pass", "site_ids": ["c55d…"] }`,"200. 404 other app's token, or not a staff site. A removed site is restored. An attached site is a no-op 200."],
+  ["DELETE","/partner/v1/sites/me/passes/{passId}/sites/{siteId}","Staff JWT · owner app","write:site_passes","none","204. Soft remove. Old holdings stay valid. A site not on the pass is a no-op 204.","404 other app's token, or not a staff site"],
+ ],
+ "Issue (API key)":[
+  ["GET","/partner/v1/passes/{passId}","API key · owner","read:passes","none",`{ "object": "pass", … }`,"404 not the owner"],
+  ["POST","/partner/v1/passes/{passId}/issue","API key · owner","write:passes",`{\n  "user_id": "1b2c…",\n  "site_id": "7c1e…",\n  "external_id": "order_8812"\n}`,`{\n  "id": "h9d0…", "object": "pass_holding",\n  "pass": { "id": "f3a1…", "object": "pass", … },\n  "member": { "id": "1b2c…", "object": "member",\n    "first_name": "…", "last_name": "…", "avatar": null },\n  "state": "active",\n  "joined_at": "2026-01-15T16:00:00Z",\n  "site_id": "7c1e…",\n  "external_id": "order_8812"\n}`,"201 new · 200 replay of the same body · 404 not the owner · 422 bad external_id, inactive pass, site, or user · 409 external_id reused"],
+  ["GET","/partner/v1/pass_holdings?pass_id=","API key · owner","read:passes","none",`{ "pass_holdings": [ … ], "pagination": { … } }`,"All holdings of the pass. Members carry names."],
+  ["POST","/partner/v1/pass_holdings/{id}/revoke","API key · owner","write:passes","none",`{ "object": "pass_holding", "state": "revoked" }`,"404 not the owner"],
+ ],
+ "Site & member reads":[
+  ["GET","/partner/v1/users/me/passes","Member JWT","read:user_passes","none",`{ "pass_holdings": [ … ], "pagination": { … } }`,"Identity from the token"],
+  ["GET","/partner/v1/sites/me/passes","Staff JWT","read:site_passes","none",`{ "passes": [ … ], "pagination": { … } }`,"Staff member → their sites → passes"],
+  ["GET","/partner/v1/passes/{passId}/holders","Staff JWT","read:site_passes","none",`{ "pass_holdings": [ … ], "pagination": { … } }`,"403 no staff site on the pass"],
+ ],
+ "App APIs":[
+  ["GET","/v1/users/me/passes","User JWT","—","none",`{\n  "pass_holdings": [\n    { "object": "pass_holding",\n      "pass": { … } }\n  ]\n}`,"Paged"],
+  ["GET","/v1/users/me/passes/{id}","User JWT","—","none",`{ "object": "pass_holding", … }`,"404 not yours"],
+  ["GET","/admin/v1/passes","Admin JWT","—","none",`{ "passes": [ … ] }`,"For support"],
+  ["GET","/admin/v1/passes/{id}/holders","Admin JWT","—","none",`{ "pass_holdings": [ … ] }`,"For support"],
+ ],
+};
+let apiSurf="Issue (API key)",apiIdx=1;
+function drawApi(){const rows=API[apiSurf];if(!rows[apiIdx])apiIdx=0;
+  $("apiList").innerHTML=rows.map((r,i)=>`<button type="button" class="route" data-i="${i}" aria-pressed="${i===apiIdx}"><span class="m ${r[0]}">${r[0]}</span><span class="p">${esc(r[1].replace("/partner/v1",""))}</span><span class="c">${esc(r[2])}${r[3]!=="—"?" · "+esc(r[3]):""}</span></button>`).join("");
+  const r=rows[apiIdx];
+  $("apiDetail").innerHTML=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="m ${r[0]}" style="padding:0 8px">${r[0]}</span><span class="mono" style="word-break:break-all;font-size:14px">${esc(r[1])}</span></div><dl class="kv" style="margin-top:10px"><dt>Credential</dt><dd>${esc(r[2])}</dd><dt>Scope</dt><dd class="mono">${esc(r[3])}</dd><dt>Errors / notes</dt><dd>${esc(r[6])}</dd></dl><div class="half" style="margin-top:10px;gap:10px"><div style="min-width:0"><div class="eyebrow">Request</div><pre class="code">${esc(r[4])}</pre></div><div style="min-width:0"><div class="eyebrow">Response (example)</div><pre class="code">${esc(r[5])}</pre></div></div>`;}
+$("apiList").addEventListener("click",e=>{const b=e.target.closest(".route");if(b){apiIdx=+b.dataset.i;drawApi()}});
+chips($("apiPick"),Object.keys(API),"Issue (API key)",k=>{apiSurf=k;apiIdx=k==="Issue (API key)"?1:0;drawApi()});
+
+/* issue simulator */
+function sim(){
+  const v=id=>$(id).value,t=[];let code=201,msg="Holding issued.";const st=(s,x)=>t.push([s,x]);
+  if(v("s-fmt")!=="ok"){st("fail","external_id is blank or longer than 255 characters.");code=422;msg="Invalid external_id.";}
+  else if(v("s-link")!=="y"){st("fail","Caller is not owner_app_id of the pass.");code=404;msg="Pass not found for this app.";}
+  else{st("pass","Caller is the owner app of the pass.");
+   if(v("s-act")!=="y"){st("fail","pass.active is false.");code=422;msg="This pass is not active.";}
+   else if(v("s-loc")!=="on"){st("fail",v("s-loc")==="removed"?"Site link has removed_at set.":"No site link for (pass, site).");code=422;msg="Site is not on this pass.";}
+   else{st("pass","Site is on the pass.");
+    if(v("s-user")==="n"){st("fail","No user with this user_id.");code=422;msg="Unknown user_id.";}
+    else{st("pass","User exists.");const ext=v("s-ext");
+     if(ext==="same"){st("pass","external_id seen with the same body.");code=200;msg="Returns the existing holding. No new row.";}
+     else if(ext==="diff"){st("fail","external_id seen with a different user or pass.");code=409;msg="external_id already used.";}
+     else if(ext==="race"){st("pass","Insert hits the unique violation from a parallel call.");st("pass","Catch it and read the winner's row.");code=200;msg="Returns the parallel call's holding.";}
+     else{st("pass","Insert the holding. Composite keys hold.");st("pass","Commit.");st("skip","Card row and wallet add: later PR.");}}}}
+  $("simCode").textContent=code;$("simCode").className="code-big "+(code<300?"ok":"err");$("simMsg").textContent=msg;
+  $("simTrace").innerHTML=t.map(([s,x])=>`<li class="${s}"><span>${s==="pass"?"✓":s==="fail"?"✕":"–"}</span><span>${esc(x)}</span></li>`).join("");
+}
+$("simForm").addEventListener("change",sim);$("simForm").addEventListener("submit",e=>e.preventDefault());sim();
+
+/* lifecycle */
+const S={h:"none",rev:null,tok:"-",day:0,op:null};const LOG=[];
+const ACT={"Issue":()=>S.h==="none","Wallet OK":()=>!!S.op,"Wallet fails":()=>!!S.op&&S.tok!=="FAILED","Revoke":()=>S.h==="active","+30 days":()=>S.h!=="none","Reset":()=>true};
+function act(a){
+  if(a==="Reset"){Object.assign(S,{h:"none",rev:null,tok:"-",day:0,op:null});LOG.length=0}
+  else if(a==="Issue"){Object.assign(S,{h:"active",tok:"PENDING",op:"ADD"});LOG.push(`day ${S.day}: issue → holding active, card PENDING (ADD)`)}
+  else if(a==="Wallet OK"){const was=S.op;S.tok=was==="REMOVE"?"REMOVED":"ADDED";S.op=null;LOG.push(`day ${S.day}: ${was} confirmed → ${S.tok}`)}
+  else if(a==="Wallet fails"){S.tok="FAILED";LOG.push(`day ${S.day}: ${S.op} failed → FAILED, alert, retry. Holding unchanged.`)}
+  else if(a==="Revoke"){S.h="revoked";S.rev=S.day;S.op="REMOVE";LOG.push(`day ${S.day}: revoke → revoked_at day ${S.day}, REMOVE queued`)}
+  else if(a==="+30 days"){S.day+=30;LOG.push(`day ${S.day}: 30 days pass. Nothing expires: the app revokes when its term ends.`)}
+  drawSm();
+}
+function drawSm(){
+  const valid=S.h==="active";
+  $("smH").textContent=S.h;
+  $("smV").innerHTML=`<span class="${valid?"ok":"err"}">${valid?"yes":"no"}</span>`;
+  $("smE").textContent=S.rev===null?"null":`day ${S.rev}`;
+  $("smT").textContent=S.tok+(S.op?" ⟳":"");
+  $("smLog").innerHTML=(LOG.length?LOG.slice().reverse().map(esc).join("<br>"):"Press Issue to start.")+`<br><span style="opacity:.7">now: day ${S.day} · ⟳ = wallet call pending</span>`;
+  $("smBtns").innerHTML=Object.keys(ACT).map(k=>`<button type="button" class="btn${k==="Reset"?" ghost":""}" data-a="${k}" ${ACT[k]()?"":"disabled"}>${k}</button>`).join("");
+}
+$("smBtns").addEventListener("click",e=>{const b=e.target.closest("button");if(b&&!b.disabled)act(b.dataset.a)});
+act("Issue");act("Wallet OK");
+
+/* migration */
+const MIG=[["Three new tables + entities",1],["Pass write routes and site opt-in",1],["Partner pass reads on the new tables",1],["App API pass reads (/v1, /admin/v1)",1],["Wallet card table + job",2]];
+function drawMig(){const i=+$("mig").value;$("migTable").querySelector("tbody").innerHTML=MIG.map(([p,at])=>`<tr><td>${p}</td><td style="text-align:right">${i>=at?'<span class="tag t-dev">live</span>':`<span class="tag">PR ${at}</span>`}</td></tr>`).join("")}
+$("mig").addEventListener("input",drawMig);drawMig();
+
+/* risks */
+const RISKS=[
+ ["high","t-bad","The wallet provider is not chosen","The provider must add a card, update it, and remove it. Until the team chooses one, the flag stays off and holdings have no card."],
+ ["medium","t-loc","Users with no wallet","Some users have no wallet app. Confirm what the app shows them, and whether the job skips them."],
+ ["medium","t-loc","Any-user issue","An approved app can put a pass on any user_id. If that is too wide, check that the user connected to the app."],
+ ["low","t-loc","Any staff member opts in","Any staff member at the site can opt it in. If only managers may, add a role check."],
+ ["low","","Wallet call cost","One app can make wallet calls up to the rate limit. Watch the cost by app after launch."],
+];
+$("risks").innerHTML=RISKS.map(([l,c,t,d])=>`<button type="button" class="rrow" aria-expanded="false"><span class="tag ${c}">${l}</span><b style="font-weight:600">${t}</b><span class="more" hidden>${d}</span></button>`).join("");
+$("risks").addEventListener("click",e=>{const b=e.target.closest(".rrow");if(!b)return;const m=b.querySelector(".more");m.hidden=!m.hidden;b.setAttribute("aria-expanded",!m.hidden)});
+
+/* alternatives */
+$("alts").innerHTML=[
+ ["An issuer table so that more than one app can issue a pass","The team chose one app for each pass. A join table can come back if a pass needs a second app."],
+ ["Drop app_id from the holding","The team chose to keep it. The composite key keeps it equal to the owner."],
+ ["A site as owner","The team chose the partner app as owner, with a site opt-in for each site."],["The owner app attaches sites with its API key","No consent from the site."],["Opt-in through any app's token","Staff could join a pass with no contact with its owner app."],
+ ["Couple issue to a paid payment link","Issue is split from payment by decision. The partner collects payment its own way."],
+ ["One wallet card for each user and pass","A user can hold a pass more than once, and each holding is revoked on its own."],
+ ["A holding expiry on the platform","The app manages the term. A stored expiry needs extend routes, wallet updates, and drift handling."],
+ ["A wallet call quota for each app","Only the standard partner rate limit for now, by decision."],
+].map(([t,d])=>`<details class="alt"><summary>${t}</summary><p>Rejected: ${d}</p></details>`).join("");
+
+showTab(location.hash.slice(1)||"intro");
+</script>
