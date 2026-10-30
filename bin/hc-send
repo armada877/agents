@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+
+
+PLACEHOLDER = re.compile(r'^Try "')
+
+
+def input_is_empty(screen):
+    for line in reversed(screen.splitlines()):
+        if line.startswith(("›", "❯")):
+            rest = line[1:].strip()
+            return not rest or bool(PLACEHOLDER.match(rest))
+    return False
+
+
+def status_of(name):
+    result = subprocess.run(["hc", "get", name, "--json"], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError(f"terminal {name} not found")
+    try:
+        info = json.loads(result.stdout)
+    except ValueError:
+        raise ValueError(f"terminal {name} not found") from None
+    if info.get("state") != "live":
+        raise ValueError(f"terminal {name} is not live")
+    return (info.get("status") or {}).get("state")
+
+
+def input_empty(name):
+    result = subprocess.run(["hc", "read", name], capture_output=True, text=True)
+    return result.returncode == 0 and input_is_empty(result.stdout)
+
+
+def send_when_ready(args):
+    deadline = None if args.timeout is None else time.monotonic() + args.timeout / 1000
+    previous_ready = False
+    while True:
+        status = status_of(args.terminal)
+        empty = input_empty(args.terminal) if status in ("idle", "done") else False
+        ready = status in ("idle", "done") and empty
+        if deadline is not None and time.monotonic() >= deadline:
+            state = "empty" if empty else "typed"
+            print(f"hc-send: timeout, {args.terminal} not ready ({status}, input {state})", file=sys.stderr)
+            return 2
+        if ready and previous_ready:
+            return subprocess.run(["hc", "send", args.terminal, args.text]).returncode
+        previous_ready = ready
+        delay = args.interval
+        if deadline is not None:
+            delay = min(delay, max(0, deadline - time.monotonic()))
+        time.sleep(delay)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Send text when the agent is idle or done and its input box is empty."
+    )
+    parser.add_argument("terminal")
+    parser.add_argument("text")
+    parser.add_argument("--timeout", type=float, help="milliseconds")
+    parser.add_argument("--interval", type=float, default=2)
+    args = parser.parse_args()
+    if args.interval <= 0 or (args.timeout is not None and args.timeout < 0):
+        parser.error("timeout must be nonnegative and interval must be positive")
+    try:
+        return send_when_ready(args)
+    except (ValueError, OSError) as error:
+        print(f"hc-send: {str(error).splitlines()[0]}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

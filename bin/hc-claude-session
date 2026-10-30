@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+
+def terminal(name):
+    result = subprocess.run(["hc", "get", name, "--json"], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError(f"terminal {name} not found")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise ValueError(f"terminal {name} not found") from None
+
+
+def session_file(name):
+    info = terminal(name)
+    status = info.get("status") or {}
+    if status.get("app") != "claude-code":
+        raise ValueError(f"terminal {name} is not claude")
+    pid = (info.get("foreground") or {}).get("pid")
+    path = Path.home() / ".claude/sessions" / f"{pid}.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        raise ValueError(f"session file for {name} not found") from None
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Print the SendMessage address of a Claude terminal.")
+    parser.add_argument("terminal")
+    parser.add_argument("--id", action="store_true", help="print the session ID instead")
+    args = parser.parse_args()
+    try:
+        session = session_file(args.terminal)
+        value = session.get("sessionId") if args.id else session.get("name")
+        if not value:
+            raise ValueError(f"terminal {args.terminal} has no session {'ID' if args.id else 'name'}")
+        print(value)
+    except (ValueError, OSError) as error:
+        print(f"hc-claude-session: {str(error).splitlines()[0]}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
