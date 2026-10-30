@@ -84,7 +84,7 @@ Do not check it as a misrouted prompt.
 4. hc has no rename. Check your name:
    `hc get "$HC_TERMINAL_ID" --json | jq -r .name`. It must be `hypervisor`.
    If it is not, tell the user to start the hypervisor with
-   `hc run --name hypervisor --label role=hypervisor --label rank=1 -- claude`.
+   `hc run --name hypervisor --label role=hypervisor --label rank=1 -- env -u CLAUDE_CODE_CHILD_SESSION claude`.
    Continue your work in the meantime.
 5. Set your labels. Do this step also when your name is already
    `hypervisor`:
@@ -247,7 +247,7 @@ repo. Do not start a second supervisor for a repo that has one.
    hc run --bg --name sup-<repo> --cwd <root>/<Name> \
      --label herdr.space=sup-<repo> --label herdr.tab=sup-<repo>-main \
      --label role=supervisor --label rank=2 \
-     --outlive-parent -- <kind> "<first prompt>"
+     --outlive-parent -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    Then name its tab after the agent. Each tab name is the agent name:
@@ -375,7 +375,7 @@ Do not do these tasks yourself. Keep your session free to monitor agents.
    ```bash
    hc run --bg --name work-<task> --cwd <dir> \
      --label role=worker --label rank=1.7 \
-     -- <kind> "<first prompt>"
+     -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    Add the model flag after `<kind>` if the entry names a model.

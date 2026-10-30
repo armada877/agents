@@ -342,7 +342,7 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
    peek. The last argument is the first prompt (see "Prompt a worker"):
 
    ```bash
-   hc run --bg --name <slug>-impl --cwd <worktree-path> --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
+   hc run --bg --name <slug>-impl --cwd <worktree-path> --label role=worker --label rank=4 -- env -u CLAUDE_CODE_CHILD_SESSION <program> --model <model> "<first prompt>"
    ```
 
    The labels set the worker tokens `worker` and `rank=4`.
@@ -357,7 +357,7 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
    child:
 
    ```bash
-   hc run --bg --name <slug>-<role> --cwd <worktree-path> --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
+   hc run --bg --name <slug>-<role> --cwd <worktree-path> --label role=worker --label rank=4 -- env -u CLAUDE_CODE_CHILD_SESSION <program> --model <model> "<first prompt>"
    ```
 
    Use the worker type from "Worker type". The labels set the worker tokens

@@ -263,7 +263,7 @@ gets a new worktree. The main checkout is yours.
    `hc run`. The last argument is the first prompt (see "First prompt"):
 
    ```bash
-   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=<own-space> --label herdr.tab=orch-<topic> -- <kind> "<first prompt>"
+   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=<own-space> --label herdr.tab=orch-<topic> -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    `--outlive-parent` keeps the orchestrator running when your own program
@@ -329,7 +329,7 @@ Do not let it change files in the repo. Give code changes to an orchestrator.
    prompt:
 
    ```bash
-   hc run --bg --name work-<task> --cwd <dir> --label role=worker --label rank=2.5 -- <kind> "<first prompt>"
+   hc run --bg --name work-<task> --cwd <dir> --label role=worker --label rank=2.5 -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    Add the model flag after `<kind>` if the entry names a model. Do not use
@@ -405,7 +405,7 @@ to load new settings. Do this only for your own agents.
    the session ID of each live worker of that orchestrator too.
 4. Check that the terminal is `finished`.
 5. Run `hc run` again with the same `--name`, the same labels, the same
-   `--cwd`, and `-- claude --resume <session-id>`. For an orchestrator, add
+   `--cwd`, and `-- env -u CLAUDE_CODE_CHILD_SESSION claude --resume <session-id>`. For an orchestrator, add
    `--outlive-parent` again. Then resume each of its workers as a pane-less
    child with `--parent <new orchestrator address>`.
 
