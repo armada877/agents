@@ -354,12 +354,13 @@ Do not do these tasks yourself. Keep your session free to monitor agents.
    ```
 
 4. Read the `worker` entry under "Agent kinds".
-5. Start the agent in a new tab of your space. The worker stays a child of
-   you, which is the default, so it ends when you end:
+5. Start the agent as a pane-less child. It has no `herdr.space` or
+   `herdr.tab` label, so the app shows it under your tab, and the user opens
+   it with a peek. The worker stays a child of you, which is the default, so
+   it ends when you end:
 
    ```bash
    hc run --bg --name work-<task> --cwd <dir> \
-     --label herdr.space=<own space> --label herdr.tab=work-<task> \
      --label role=worker --label rank=1.7 \
      -- <kind> "<first prompt>"
    ```
@@ -412,11 +413,14 @@ You can stop your own worker after its final report, without a new approval.
 
 1. For Codex, record its process ID under "Confirm that a Codex agent
    stopped".
-2. Run `hc interrupt work-<task>`.
-3. Run `hc send work-<task> "/exit"`.
-4. For Codex, do the checks under "Confirm that a Codex agent stopped".
-5. If the terminal is still live, run `hc kill work-<task>`. The app closes
-   its pane. When the terminal is finished, run `hc rm work-<task>`.
+2. Run `hc kill work-<task>`.
+3. For Codex, do the checks under "Confirm that a Codex agent stopped".
+4. When the terminal is finished, run `hc rm work-<task>`.
+
+`hc send` delivers text as a tagged message, so the agent reads it as a
+message, not as typed input. A slash command such as `/exit` does not run.
+To stop an agent, run `hc kill <name>`. The Claude session stays on disk,
+so `claude --resume <session-id>` continues it.
 
 ## Monitor
 

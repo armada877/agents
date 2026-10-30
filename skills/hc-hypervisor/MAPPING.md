@@ -24,6 +24,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | `herdr agent prompt <n> "<text>"` | `hc send <n> "<text>"`; add `--wait` to wait for that turn |
 | `herdr agent wait <n>` | `hc wait <n>` (default 180 s check-in; `--timeout S`) |
 | `herdr agent send-keys <n> ctrl+c` | `hc interrupt <n>` (stop the turn) or `hc keys <n> ctrl+c` |
+| stop an agent (`/exit`) | `hc kill <n>`. `hc send` delivers a tagged message, so `/exit` sent with it does not run. The Claude session stays on disk for `claude --resume`. |
 | `herdr agent start <n> --kind claude --pane <p> -- <args>` | `hc run --bg --name <n> --cwd <dir> --label ... -- claude <args> "<first prompt>"`. The last argument is the first message. Use `--outlive-parent` when the agent must survive its starter (supervisors, orchestrators). Workers stay children of their orchestrator (the default), so they end with it. |
 | `herdr agent rename` | Not available. Use `--name` at start. |
 | Cursor agent | `hc run ... -- cursor-agent <args>` (status reports from Cursor are not verified) |
@@ -38,7 +39,8 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | workspace | app **space**. A terminal with label `herdr.space=<id>` shows in that space. An id the app does not know becomes a new space. |
 | tab | app **tab**: label `herdr.tab=<id>`. A new id becomes a new tab in the space. |
 | `herdr workspace create --cwd D --label L` | No separate step. Start the agent with `--cwd D --label herdr.space=<L> --label herdr.tab=<L>-main`. Optional name: `herdr-app do space.rename --id <L> --name <L>`. |
-| `herdr tab create` (worker tab) | Start the worker with `--label herdr.space=<own space> --label herdr.tab=<worker-name>` |
+| `herdr tab create` (worker tab) | Workers are pane-less: start them with no `herdr.space` or `herdr.tab` label. The app shows them under their parent's tab. |
+| orchestrator space | An orchestrator is a tab in its supervisor's space: `--label herdr.space=<supervisor's space> --label herdr.tab=<orch-name>`. The app reads these labels only when it first sees a terminal; changing them later does not move a live tab. |
 | `herdr tab close` | `hc kill <n>` ends the program; the app closes its pane. `hc rm <n>` removes a finished terminal. |
 | `herdr worktree create` | `git -C <repo> worktree add <path> -b <branch> origin/<base>`; path under `~/.herdr/worktrees/<repo>/` |
 | `herdr workspace list` | `herdr-app ls` |

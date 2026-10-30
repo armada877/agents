@@ -141,10 +141,9 @@ Do not check either kind as a misrouted prompt.
    `hc get "$HC_TERMINAL_ID" --json | jq -r .name`. It must be
    `orch-<topic>`. If your first prompt gives you a name, keep that name. hc
    has no rename, so if the name is wrong, tell the user.
-5. Find your space, and set your role label and your rank label:
+5. Set your role label and your rank label:
 
    ```bash
-   SPACE=$(hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.space"]')
    hc label "$HC_TERMINAL_ID" role=orchestrator rank=3
    ```
 
@@ -330,11 +329,13 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
 
      The worktree path is the path that you gave to `git worktree add`.
 2. Write the plan into the worktree.
-3. Start the lead worker in its own app tab of your space. Child is the
-   default. The last argument is the first prompt (see "Prompt a worker"):
+3. Start the lead worker as your pane-less child. Child is the default.
+   Workers are pane-less: they have no `herdr.space` or `herdr.tab` label,
+   so the app shows them under your tab, and the user opens one with a
+   peek. The last argument is the first prompt (see "Prompt a worker"):
 
    ```bash
-   hc run --bg --name <slug>-impl --cwd <worktree-path> --label herdr.space="$SPACE" --label herdr.tab=<slug>-impl --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
+   hc run --bg --name <slug>-impl --cwd <worktree-path> --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
    ```
 
    The labels set the worker tokens `worker` and `rank=4`.
@@ -345,11 +346,11 @@ use `git diff`, `git show`, or `gh pr diff`. Do not check it out.
 
 ### Start a companion worker
 
-1. Use the worktree of the lead. Start the companion in its own app tab of
-   your space:
+1. Use the worktree of the lead. Start the companion as your pane-less
+   child:
 
    ```bash
-   hc run --bg --name <slug>-<role> --cwd <worktree-path> --label herdr.space="$SPACE" --label herdr.tab=<slug>-<role> --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
+   hc run --bg --name <slug>-<role> --cwd <worktree-path> --label role=worker --label rank=4 -- <program> --model <model> "<first prompt>"
    ```
 
    Use the worker type from "Worker type". The labels set the worker tokens
@@ -452,15 +453,15 @@ After a workstream is merged or dropped:
 
 1. For each Codex worker, record its terminal address and its process ID. See
    "Confirm that a Codex agent stopped".
-2. Tell its workers to stop, or run `hc interrupt <worker>`.
-3. Run `hc kill <worker>` for each worker of the workstream. The app closes
-   the tab of the worker. Then run `hc rm <worker>` to remove the finished
+2. Run `hc kill <worker>` for each worker of the workstream. Do not send
+   `/exit` with `hc send`: `hc send` delivers a tagged message, so a slash
+   command does not run. Then run `hc rm <worker>` to remove the finished
    terminal. For a workstream in its own worktree, also remove the worktree
    with `git -C "$REPO_ROOT" worktree remove <path>`. If git refuses because
    the worktree has changes, ask the user before you use `--force`.
-4. For each Codex worker, do the checks in "Confirm that a Codex agent
+3. For each Codex worker, do the checks in "Confirm that a Codex agent
    stopped".
-5. Set the board status to `merged` or `dropped`.
+4. Set the board status to `merged` or `dropped`.
 
 Close only the terminals and worktrees that you created.
 

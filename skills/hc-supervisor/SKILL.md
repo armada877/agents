@@ -256,12 +256,15 @@ gets a new worktree. The main checkout is yours.
    `hc run`. The last argument is the first prompt (see "First prompt"):
 
    ```bash
-   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=orch-<topic> --label herdr.tab=orch-<topic>-main -- <kind> "<first prompt>"
+   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=<own-space> --label herdr.tab=orch-<topic> -- <kind> "<first prompt>"
    ```
 
    `--outlive-parent` keeps the orchestrator running when your own program
-   ends. The labels give it its role, its rank, and its own space and tab in
-   the app. Add the model flag after `<kind>` if the entry has a model. Do not
+   ends. The labels give it its role, its rank, and its own tab in your space
+   in the app. Get your space with
+   `hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.space"]'`. The
+   app reads these labels only when it first sees the terminal: changing them
+   later does not move a live tab. Add the model flag after `<kind>` if the entry has a model. Do not
    pass a permission mode. The user's settings for the agent set the default.
    For Claude, the auto mode classifier blocks `--permission-mode auto` when
    you start an agent.
@@ -308,11 +311,12 @@ Do not let it change files in the repo. Give code changes to an orchestrator.
    hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.space"]'
    ```
 
-5. Start the worker in a tab of your space. The last argument is the first
+5. Start the worker as a pane-less child: no `herdr.space` or `herdr.tab`
+   label. The app shows it under your tab. The last argument is the first
    prompt:
 
    ```bash
-   hc run --bg --name work-<task> --cwd <dir> --label role=worker --label rank=2.5 --label herdr.space=<own-space> --label herdr.tab=work-<task> -- <kind> "<first prompt>"
+   hc run --bg --name work-<task> --cwd <dir> --label role=worker --label rank=2.5 -- <kind> "<first prompt>"
    ```
 
    Add the model flag after `<kind>` if the entry names a model. Do not use
@@ -368,12 +372,14 @@ Use the rule under "Message channels".
 You can stop your own worker after its final report, without a new approval.
 
 1. For Codex, record its IDs under "Confirm that a Codex agent stopped".
-2. Run `hc interrupt work-<task>`.
-3. Run `hc send work-<task> "/exit"`.
-4. For Codex, do the checks under "Confirm that a Codex agent stopped".
-5. Run `hc wait work-<task>`. If the program does not end, run
-   `hc kill work-<task>`. The app closes its pane. Then run
-   `hc rm work-<task>` to remove the finished terminal.
+2. Run `hc kill work-<task>`.
+3. For Codex, do the checks under "Confirm that a Codex agent stopped".
+4. Run `hc rm work-<task>` to remove the finished terminal.
+
+`hc send` delivers text as a tagged message, so the agent reads it as a
+message, not as typed input. A slash command such as `/exit` does not run.
+To stop an agent, run `hc kill <name>`. The Claude session stays on disk,
+so `claude --resume <session-id>` continues it.
 
 ## Restart an agent
 
@@ -382,11 +388,13 @@ to load new settings. Do this only for your own agents.
 
 1. Wait until the agent ends its turn and is `idle`.
 2. Get the session ID BEFORE the exit: `hc-claude-session <name> --id`.
-3. Run `hc-send <name> "/exit"`.
-4. Run `hc wait <name>` until the terminal is `finished`.
+3. Run `hc kill <name>`. A worker ends with its orchestrator, so first get
+   the session ID of each live worker of that orchestrator too.
+4. Check that the terminal is `finished`.
 5. Run `hc run` again with the same `--name`, the same labels, the same
    `--cwd`, and `-- claude --resume <session-id>`. For an orchestrator, add
-   `--outlive-parent` again.
+   `--outlive-parent` again. Then resume each of its workers as a pane-less
+   child with `--parent <new orchestrator address>`.
 
 ## Pass on notes from the hypervisor
 
