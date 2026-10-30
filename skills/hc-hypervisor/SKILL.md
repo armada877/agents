@@ -93,6 +93,13 @@ Do not check it as a misrouted prompt.
    hc label "$HC_TERMINAL_ID" role=hypervisor rank=1
    ```
 
+   Then name your tab after your agent name. The app does not do this for you:
+
+   ```bash
+   herdr-app do tab.rename --name hypervisor \
+     --id "$(hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.tab"]')"
+   ```
+
 6. Make sure that each live supervisor, orchestrator, and worker has its
    `role` label and its `rank` label. See "Role labels".
 7. The app sorts the agents. See "Sort the agents".
@@ -241,6 +248,12 @@ repo. Do not start a second supervisor for a repo that has one.
      --label herdr.space=sup-<repo> --label herdr.tab=sup-<repo>-main \
      --label role=supervisor --label rank=2 \
      --outlive-parent -- <kind> "<first prompt>"
+   ```
+
+   Then name its tab after the agent. Each tab name is the agent name:
+
+   ```bash
+   herdr-app do tab.rename --id sup-<repo>-main --name sup-<repo>
    ```
 
    Add the model flag after `<kind>` if the entry has a model. Do not pass a

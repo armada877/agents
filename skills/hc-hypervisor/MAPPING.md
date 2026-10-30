@@ -37,7 +37,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | herdr | hc / herdr-app |
 | --- | --- |
 | workspace | app **space**. A terminal with label `herdr.space=<id>` shows in that space. An id the app does not know becomes a new space. |
-| tab | app **tab**: label `herdr.tab=<id>`. A new id becomes a new tab in the space. |
+| tab | app **tab**: label `herdr.tab=<id>`. A new id becomes a new tab in the space. Name each tab after its agent: `herdr-app do tab.rename --id <tab-id> --name <agent-name>` after `hc run`. The app does not do it. |
 | `herdr workspace create --cwd D --label L` | No separate step. Start the agent with `--cwd D --label herdr.space=<L> --label herdr.tab=<L>-main`. Optional name: `herdr-app do space.rename --id <L> --name <L>`. |
 | `herdr tab create` (worker tab) | Workers are pane-less: start them with no `herdr.space` or `herdr.tab` label. The app shows them under their parent's tab. |
 | orchestrator space | An orchestrator is a tab in its supervisor's space: `--label herdr.space=<supervisor's space> --label herdr.tab=<orch-name>`. The app reads these labels only when it first sees a terminal; changing them later does not move a live tab. |

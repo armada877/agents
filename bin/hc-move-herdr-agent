@@ -25,4 +25,5 @@ args=(--bg --json --name "$name" --cwd "$cwd" --label role="$role" --label rank=
 model_args=()
 [ -n "$model" ] && model_args=(--model "$model")
 out=$(hc run "${args[@]}" -- claude --resume "$sid" "${model_args[@]}" "$prompt")
+herdr-app do tab.rename --id "$tab" --name "$name" >/dev/null 2>&1 || echo "$name: tab rename failed"
 echo "$name: $(echo "$out" | jq -c '{address,state}') model=${model:-default}"
