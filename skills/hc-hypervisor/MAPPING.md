@@ -24,10 +24,11 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | `herdr agent prompt <n> "<text>"` | `hc send <n> "<text>"`; add `--wait` to wait for that turn |
 | `herdr agent wait <n>` | `hc wait <n>` (default 180 s check-in; `--timeout S`) |
 | `herdr agent send-keys <n> ctrl+c` | `hc interrupt <n>` (stop the turn) or `hc keys <n> ctrl+c` |
+| start any program | Put `env -u CLAUDE_CODE_CHILD_SESSION` before the program in every `hc run`. Claude Code sets this marker in every shell that it runs; an agent that inherits it saves no transcript, so `claude --resume` cannot bring it back. |
 | stop an agent (`/exit`) | `hc kill <n>`. `hc send` delivers a tagged message, so `/exit` sent with it does not run. The Claude session stays on disk for `claude --resume`. |
-| `herdr agent start <n> --kind claude --pane <p> -- <args>` | `hc run --bg --name <n> --cwd <dir> --label ... -- claude <args> "<first prompt>"`. The last argument is the first message. Use `--outlive-parent` when the agent must survive its starter (supervisors, orchestrators). Workers stay children of their orchestrator (the default), so they end with it. |
+| `herdr agent start <n> --kind claude --pane <p> -- <args>` | `hc run --bg --name <n> --cwd <dir> --label ... -- env -u CLAUDE_CODE_CHILD_SESSION claude <args> "<first prompt>"`. The last argument is the first message. Use `--outlive-parent` when the agent must survive its starter (supervisors, orchestrators). Workers stay children of their orchestrator (the default), so they end with it. |
 | `herdr agent rename` | Not available. Use `--name` at start. |
-| Cursor agent | `hc run ... -- cursor-agent <args>` (status reports from Cursor are not verified) |
+| Cursor agent | `hc run ... -- env -u CLAUDE_CODE_CHILD_SESSION cursor-agent <args>` (status reports from Cursor are not verified) |
 | `herdr-send <n> "<text>"` | `hc-send <n> "<text>" [--timeout ms]`: waits until the agent is idle or done and its input box is empty, then sends |
 | `herdr-claude-session <n>` | `hc-claude-session <n>` prints the SendMessage address; `--id` prints the session ID for `claude --resume` |
 | Child reports | A child that runs `hc send $PARENT "<report>"` arrives as `<hc from="t7 name">…</hc>`. hc also notifies a parent when a child blocks, errors, or exits. `hc wait --children any` waits for the next news. |
