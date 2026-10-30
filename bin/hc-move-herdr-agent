@@ -1,0 +1,28 @@
+#!/bin/bash
+[ $# -eq 7 ] || { echo "usage: hc-move-herdr-agent <name> <role> <rank> <space> <tab> <outlive:yes|no> \"<first prompt>\"" >&2; exit 2; }
+set -u
+name=$1 role=$2 rank=$3 space=$4 tab=$5 outlive=$6 prompt=$7
+j=$(herdr agent get "$name" 2>/dev/null)
+[ "$(echo "$j" | jq -r '.result.agent.agent // empty')" = claude ] || { echo "$name: not a live herdr claude agent, skipped"; exit 1; }
+sid=$(echo "$j" | jq -r '.result.agent.agent_session.value // empty')
+cwd=$(echo "$j" | jq -r '.result.agent.cwd')
+[ -n "$sid" ] || { echo "$name: no session ID, skipped"; exit 1; }
+[ -d "$cwd" ] || { echo "$name: folder $cwd is gone, skipped"; exit 1; }
+f=$(ls ~/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)
+model=$(grep -o '"model":"[^"]*"' "$f" 2>/dev/null | tail -1 | cut -d'"' -f4)
+alive() {
+  for s in ~/.claude/sessions/*.json; do
+    [ "$(jq -r .sessionId "$s" 2>/dev/null)" = "$sid" ] || continue
+    kill -0 "$(jq -r .pid "$s")" 2>/dev/null && return 0
+  done
+  return 1
+}
+herdr-send "$name" "/exit" --timeout 600000 >/dev/null 2>&1
+for i in $(seq 1 60); do alive || break; sleep 2; done
+alive && { echo "$name: still running after /exit, skipped"; exit 1; }
+args=(--bg --json --name "$name" --cwd "$cwd" --label role="$role" --label rank="$rank" --label herdr.space="$space" --label herdr.tab="$tab")
+[ "$outlive" = yes ] && args+=(--outlive-parent)
+model_args=()
+[ -n "$model" ] && model_args=(--model "$model")
+out=$(hc run "${args[@]}" -- claude --resume "$sid" "${model_args[@]}" "$prompt")
+echo "$name: $(echo "$out" | jq -c '{address,state}') model=${model:-default}"
