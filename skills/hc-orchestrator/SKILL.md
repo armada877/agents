@@ -147,6 +147,13 @@ Do not check either kind as a misrouted prompt.
    hc label "$HC_TERMINAL_ID" role=orchestrator rank=3
    ```
 
+   Then name your tab after your agent name. The app does not do this for you:
+
+   ```bash
+   herdr-app do tab.rename --name <your-name> \
+     --id "$(hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.tab"]')"
+   ```
+
 6. Find your supervisor. Use the name from your first prompt. Otherwise look
    for a live `sup-<repo>` agent with `hc ls --label role=supervisor`. Record
    the name on the board. If no supervisor is live, tell the user.

@@ -139,6 +139,13 @@ Do not check it as a misrouted prompt.
    hc label "$HC_TERMINAL_ID" role=supervisor rank=2
    ```
 
+   Then name your tab after your agent name. The app does not do this for you:
+
+   ```bash
+   herdr-app do tab.rename --name <your-name> \
+     --id "$(hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.tab"]')"
+   ```
+
 6. Make the roster.
 
 ## The roster
@@ -268,6 +275,12 @@ gets a new worktree. The main checkout is yours.
    pass a permission mode. The user's settings for the agent set the default.
    For Claude, the auto mode classifier blocks `--permission-mode auto` when
    you start an agent.
+
+   Then name its tab after the agent. Each tab name is the agent name:
+
+   ```bash
+   herdr-app do tab.rename --id orch-<topic> --name orch-<topic>
+   ```
 
 6. Read `first_message.sent` in the result. If it is false, read the terminal
    with `hc read orch-<topic> --lines 40`. Show a folder trust prompt to the
