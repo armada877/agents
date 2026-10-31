@@ -89,7 +89,7 @@ Write the plan file and report `needs-input` with its path. Do not run
 plan-view.
 Your owner shows it with `plan-view <file>`.
 The owner runs `plan-view --close <old-file>` before a new plan, to keep only
-one plan window open.
+one plan open.
 After approval, the owner runs `plan-view --close <file>` and sends you the
 answer.
 
