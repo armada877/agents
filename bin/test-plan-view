@@ -107,6 +107,19 @@ class PlanViewTests(unittest.TestCase):
         }
         cls.socket_path = cls.tmp / "run" / "herdr-core" / f"{cls.env['HC_SESSION']}.sock"
         subprocess.run(["hc", "server", "start"], env=cls.env, check=True, capture_output=True)
+        warm_up = cls.tmp / "plans" / "warm-up.md"
+        warm_up.write_text("# Warm up\n")
+        subprocess.run(
+            [str(PLAN_VIEW), str(warm_up)],
+            env={**cls.env, "HERDR_CORE_SOCKET": str(cls.tmp / "none.sock"), "PLAN_VIEW_WINDOW": "1"},
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+        deadline = time.time() + 5
+        while not cls.calls.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.3)
 
     @classmethod
     def tearDownClass(cls):
