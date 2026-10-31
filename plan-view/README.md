@@ -1,7 +1,7 @@
 # plan-view
 
 `plan-view <file.md>` shows a Markdown plan.
-It publishes the plan to the herdr-core doc store, so that herdr-office can
+It publishes the plan to the herdr-core doc store, so that the office can
 show it.
 It opens a window only when `PLAN_VIEW_WINDOW=1` is set, or when it cannot
 publish.
