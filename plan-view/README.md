@@ -43,7 +43,6 @@ Some plans must not go to the doc store. List them in
 - If the file cannot be read, or a line is not absolute, plan-view does not
   publish.
 
-
 ## Docs
 
 - `plan-<id>`: the plan. Fields: `title`, `source`, `markdown`, `updated`,
