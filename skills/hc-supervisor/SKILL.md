@@ -196,9 +196,11 @@ Track all orchestrators of your repo and their work. Each repo chooses how.
 A plan for the user's approval is one Markdown file, one page at most.
 Use Mermaid `flowchart` and `stateDiagram-v2` blocks in place of long text.
 
-Show the plan with `plan-view <file>`.
-Keep only one plan window open. Run `plan-view --close <old-file>` before you
-show a new plan.
+Show the plan with `plan-view <file>`. It publishes the plan to the office.
+It opens a window only when `PLAN_VIEW_WINDOW=1` is set, or when it cannot
+publish.
+Keep only one plan open. Run `plan-view --close <old-file>` before you show a
+new plan.
 After approval, run `plan-view --close <file>`.
 
 A worker writes its plan and reports `needs-input`. It does not run plan-view.

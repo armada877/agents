@@ -19,8 +19,9 @@ else
 fi
 
 package_dir="$(realpath "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../plan-view")"
-install_dir="$HOME/.local/share/plan-view"
+install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/plan-view"
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/plan-view"
+socket_path="${HERDR_CORE_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/herdr-core/${HC_SESSION:-default}.sock}"
 colors_file="$HOME/.local/state/omarchy/current/theme/colors.toml"
 
 file_id="$(printf '%s' "$source_file" | sha256sum | cut -c1-12)"
@@ -65,12 +66,80 @@ open_window() {
     --app="file://$output_file" >/dev/null 2>&1
 }
 
+skip_file="${XDG_CONFIG_HOME:-$HOME/.config}/plan-view/skip"
+
+office_disabled_by_env() {
+  [[ ${PLAN_VIEW_OFFICE:-} == 0 ]] || return 1
+  echo "plan-view: not published to the office: PLAN_VIEW_OFFICE=0" >&2
+}
+
+office_disabled_by_marker() {
+  local folder
+  folder="$(dirname "$source_file")"
+  while :; do
+    if [[ -e $folder/.plan-view-no-office ]]; then
+      echo "plan-view: not published to the office: a parent folder has .plan-view-no-office" >&2
+      return 0
+    fi
+    [[ $folder == / ]] && return 1
+    folder="$(dirname "$folder")"
+  done
+}
+
+is_skipped() {
+  [[ -e $skip_file || -L $skip_file ]] || return 1
+  local lines line number=0 prefix
+  if ! lines="$(cat "$skip_file" 2>/dev/null)"; then
+    echo "plan-view: not published to the office: cannot read the skip list $skip_file" >&2
+    return 0
+  fi
+  while IFS= read -r line || [[ -n $line ]]; do
+    number=$((number + 1))
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z $line || $line == \#* ]] && continue
+    [[ $line == "~/"* ]] && line="$HOME/${line#\~/}"
+    if [[ $line != /* ]]; then
+      echo "plan-view: not published to the office: cannot read the skip list $skip_file: bad line $number" >&2
+      return 0
+    fi
+    prefix="$(realpath -m -- "$line")"
+    if [[ $prefix == / || $source_file == "$prefix" || $source_file == "$prefix"/* ]]; then
+      echo "plan-view: not published to the office: the plan is in the skip list" >&2
+      return 0
+    fi
+  done <<<"$lines"
+  return 1
+}
+
+publish_to_office() {
+  if office_disabled_by_env || office_disabled_by_marker || is_skipped; then
+    return 1
+  fi
+  if [[ ! -S $socket_path ]]; then
+    if [[ ${PLAN_VIEW_WINDOW:-} != 1 ]]; then
+      echo "plan-view: not published to the office: no herdr-core socket at $socket_path" >&2
+    fi
+    return 1
+  fi
+  node "$package_dir/publish.mjs" "$socket_path" publish "$source_file" "$file_id"
+}
+
+close_in_office() {
+  [[ -S $socket_path ]] || return 0
+  node "$package_dir/publish.mjs" "$socket_path" close "$file_id" || true
+}
+
 if "$close_only"; then
+  close_in_office
   close_open_windows
   exit 0
 fi
 
 install_packages
+if publish_to_office && [[ ${PLAN_VIEW_WINDOW:-} != 1 ]]; then
+  exit 0
+fi
 render
 close_open_windows
 open_window
