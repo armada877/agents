@@ -332,6 +332,63 @@ class PlanViewTests(unittest.TestCase):
         result = self.run_plan_view(path, PLAN_VIEW_WINDOW="1")
         self.assert_skipped(result, path)
 
+    def make_marker(self, directory):
+        folder = self.tmp / directory
+        folder.mkdir(parents=True, exist_ok=True)
+        marker = folder / ".plan-view-no-office"
+        marker.write_text("")
+        self.addCleanup(lambda: marker.unlink(missing_ok=True))
+
+    def test_office_env_off(self):
+        path = self.make_plan_in("envdir")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="0")
+        self.assert_skipped(result, path)
+        self.assertIn("PLAN_VIEW_OFFICE=0", result.stderr)
+
+    def test_office_env_off_with_window_on(self):
+        path = self.make_plan_in("envdir2")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="0", PLAN_VIEW_WINDOW="1")
+        self.assert_skipped(result, path)
+
+    def test_office_env_on(self):
+        path = self.make_plan_in("envdir3")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="1")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_marker_in_own_folder(self):
+        path = self.make_plan_in("marked1")
+        self.make_marker("marked1")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn(".plan-view-no-office", result.stderr)
+
+    def test_marker_two_folders_above(self):
+        path = self.make_plan_in("marked2/one/two")
+        self.make_marker("marked2")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+
+    def test_marker_in_sibling_only(self):
+        path = self.make_plan_in("tree3/plans")
+        self.make_marker("tree3/other")
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_marker_with_symlinked_plan(self):
+        target = self.make_plan_in("marked4/sub")
+        self.make_marker("marked4")
+        link_dir = self.tmp / "links4"
+        link_dir.mkdir(exist_ok=True)
+        link = link_dir / "plan.md"
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+        result = self.run_plan_view(link)
+        self.assert_skipped(result, target)
+
     def test_conflict_retry(self):
         store = {}
         failed = []

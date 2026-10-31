@@ -68,6 +68,24 @@ open_window() {
 
 skip_file="${XDG_CONFIG_HOME:-$HOME/.config}/plan-view/skip"
 
+office_disabled_by_env() {
+  [[ ${PLAN_VIEW_OFFICE:-} == 0 ]] || return 1
+  echo "plan-view: not published to the office: PLAN_VIEW_OFFICE=0" >&2
+}
+
+office_disabled_by_marker() {
+  local folder
+  folder="$(dirname "$source_file")"
+  while :; do
+    if [[ -e $folder/.plan-view-no-office ]]; then
+      echo "plan-view: not published to the office: a parent folder has .plan-view-no-office" >&2
+      return 0
+    fi
+    [[ $folder == / ]] && return 1
+    folder="$(dirname "$folder")"
+  done
+}
+
 is_skipped() {
   [[ -e $skip_file || -L $skip_file ]] || return 1
   local lines line number=0 prefix
@@ -95,7 +113,7 @@ is_skipped() {
 }
 
 publish_to_office() {
-  if is_skipped; then
+  if office_disabled_by_env || office_disabled_by_marker || is_skipped; then
     return 1
   fi
   if [[ ! -S $socket_path ]]; then
