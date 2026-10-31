@@ -19,7 +19,7 @@ else
 fi
 
 package_dir="$(realpath "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../plan-view")"
-install_dir="$HOME/.local/share/plan-view"
+install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/plan-view"
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/plan-view"
 colors_file="$HOME/.local/state/omarchy/current/theme/colors.toml"
 
