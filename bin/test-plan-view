@@ -389,6 +389,23 @@ class PlanViewTests(unittest.TestCase):
         result = self.run_plan_view(link)
         self.assert_skipped(result, target)
 
+    def test_skip_whole_path_components(self):
+        base = self.tmp / "x"
+        base.mkdir(exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(base, ignore_errors=True))
+        listed_file = base / "private"
+        listed_file.write_text("# Exact\n")
+        self.write_skip(str(listed_file))
+        self.assert_skipped(self.run_plan_view(listed_file), listed_file)
+        listed_file.unlink()
+        inside = self.make_plan_in("x/private")
+        self.assert_skipped(self.run_plan_view(inside), inside)
+        sibling = self.make_plan_in("x/private-old")
+        result = self.run_plan_view(sibling)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(sibling)}")["value"])
+
     def test_conflict_retry(self):
         store = {}
         failed = []
