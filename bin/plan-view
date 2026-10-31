@@ -21,6 +21,7 @@ fi
 package_dir="$(realpath "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../plan-view")"
 install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/plan-view"
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/plan-view"
+socket_path="${HERDR_CORE_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/herdr-core/${HC_SESSION:-default}.sock}"
 colors_file="$HOME/.local/state/omarchy/current/theme/colors.toml"
 
 file_id="$(printf '%s' "$source_file" | sha256sum | cut -c1-12)"
@@ -65,12 +66,31 @@ open_window() {
     --app="file://$output_file" >/dev/null 2>&1
 }
 
+publish_to_office() {
+  if [[ ! -S $socket_path ]]; then
+    if [[ ${PLAN_VIEW_WINDOW:-} != 1 ]]; then
+      echo "plan-view: not published to the office: no herdr-core socket at $socket_path" >&2
+    fi
+    return 1
+  fi
+  node "$package_dir/publish.mjs" "$socket_path" publish "$source_file" "$file_id"
+}
+
+close_in_office() {
+  [[ -S $socket_path ]] || return 0
+  node "$package_dir/publish.mjs" "$socket_path" close "$file_id" || true
+}
+
 if "$close_only"; then
+  close_in_office
   close_open_windows
   exit 0
 fi
 
 install_packages
+if publish_to_office && [[ ${PLAN_VIEW_WINDOW:-} != 1 ]]; then
+  exit 0
+fi
 render
 close_open_windows
 open_window
