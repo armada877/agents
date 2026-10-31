@@ -39,6 +39,7 @@ Some plans must not go to the doc store. List them in
 - Write one absolute path in each line. A line can start with `~/`.
 - Empty lines and lines that start with `#` are ignored.
 - A plan is skipped when its real path is the listed path or is inside it.
+- A line of `/` skips every plan.
 - A missing file means no skips.
 - If the file cannot be read, or a line is not absolute, plan-view does not
   publish.
