@@ -66,7 +66,38 @@ open_window() {
     --app="file://$output_file" >/dev/null 2>&1
 }
 
+skip_file="${XDG_CONFIG_HOME:-$HOME/.config}/plan-view/skip"
+
+is_skipped() {
+  [[ -e $skip_file || -L $skip_file ]] || return 1
+  local lines line number=0 prefix
+  if ! lines="$(cat "$skip_file" 2>/dev/null)"; then
+    echo "plan-view: not published to the office: cannot read the skip list $skip_file" >&2
+    return 0
+  fi
+  while IFS= read -r line || [[ -n $line ]]; do
+    number=$((number + 1))
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z $line || $line == \#* ]] && continue
+    [[ $line == "~/"* ]] && line="$HOME/${line#\~/}"
+    if [[ $line != /* ]]; then
+      echo "plan-view: not published to the office: cannot read the skip list $skip_file: bad line $number" >&2
+      return 0
+    fi
+    prefix="$(realpath -m -- "$line")"
+    if [[ $prefix == / || $source_file == "$prefix" || $source_file == "$prefix"/* ]]; then
+      echo "plan-view: not published to the office: the plan is in the skip list" >&2
+      return 0
+    fi
+  done <<<"$lines"
+  return 1
+}
+
 publish_to_office() {
+  if is_skipped; then
+    return 1
+  fi
   if [[ ! -S $socket_path ]]; then
     if [[ ${PLAN_VIEW_WINDOW:-} != 1 ]]; then
       echo "plan-view: not published to the office: no herdr-core socket at $socket_path" >&2

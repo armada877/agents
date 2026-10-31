@@ -250,6 +250,88 @@ class PlanViewTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
         self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
 
+    def write_skip(self, *lines):
+        skip = self.tmp / "config" / "plan-view" / "skip"
+        skip.parent.mkdir(exist_ok=True)
+        skip.write_text("\n".join(lines) + "\n")
+        self.addCleanup(lambda: skip.unlink(missing_ok=True))
+
+    def make_plan_in(self, directory, name="plan.md"):
+        folder = self.tmp / directory
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text("# Skip test\n")
+        return path
+
+    def assert_skipped(self, result, path):
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(self.stderr_lines(result)), 1)
+        self.assertEqual(self.core.get(f"plan-{file_id(path)}")["version"], 0)
+        self.assertTrue(self.called("chromium"))
+
+    def test_skip_listed_dir(self):
+        path = self.make_plan_in("secret")
+        self.write_skip(str(self.tmp / "secret"))
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn("skip list", result.stderr)
+
+    def test_skip_other_dir_published(self):
+        path = self.make_plan_in("open")
+        self.write_skip(str(self.tmp / "secret"))
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_skip_symlinked_plan(self):
+        target = self.make_plan_in("secret2")
+        link_dir = self.tmp / "links"
+        link_dir.mkdir(exist_ok=True)
+        link = link_dir / "plan.md"
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+        self.write_skip(str(self.tmp / "secret2"))
+        result = self.run_plan_view(link)
+        self.assert_skipped(result, target)
+
+    def test_skip_symlinked_prefix(self):
+        path = self.make_plan_in("real")
+        alias = self.tmp / "alias"
+        alias.unlink(missing_ok=True)
+        alias.symlink_to(self.tmp / "real")
+        self.write_skip(str(alias))
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+
+    def test_skip_prefix_needs_separator(self):
+        path = self.make_plan_in("ab")
+        (self.tmp / "a").mkdir(exist_ok=True)
+        self.write_skip(str(self.tmp / "a"))
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_skip_comments_and_home(self):
+        path = self.make_plan_in("homedir/sub")
+        self.write_skip("# a comment", "", "   ", "~/sub")
+        result = self.run_plan_view(path, HOME=str(self.tmp / "homedir"))
+        self.assert_skipped(result, path)
+
+    def test_skip_relative_line(self):
+        path = self.make_plan_in("rel")
+        self.write_skip("relative/dir")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn("bad line 1", result.stderr)
+
+    def test_skip_with_window_on(self):
+        path = self.make_plan_in("secret3")
+        self.write_skip(str(self.tmp / "secret3"))
+        result = self.run_plan_view(path, PLAN_VIEW_WINDOW="1")
+        self.assert_skipped(result, path)
+
     def test_conflict_retry(self):
         store = {}
         failed = []
