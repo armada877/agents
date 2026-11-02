@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+from datetime import datetime, timedelta, timezone
+
+ROOT = Path(__file__).resolve().parent.parent
+PLAN_VIEW = ROOT / "bin" / "plan-view"
+
+
+def file_id(path):
+    return hashlib.sha256(str(path).encode()).hexdigest()[:12]
+
+
+def iso(delta_days):
+    moment = datetime.now(timezone.utc) - timedelta(days=delta_days)
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+class CoreClient:
+    def __init__(self, socket_path):
+        self.socket = socket.socket(socket.AF_UNIX)
+        self.socket.connect(str(socket_path))
+        self.reader = self.socket.makefile("r")
+        self.next_id = 1
+
+    def call(self, method, params):
+        request = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
+        self.next_id += 1
+        self.socket.sendall((json.dumps(request) + "\n").encode())
+        return json.loads(self.reader.readline())
+
+    def get(self, name):
+        return self.call("doc.get", {"name": name})["result"]
+
+    def set(self, name, value):
+        version = self.get(name)["version"]
+        return self.call("doc.set", {"name": name, "value": value, "version": version})
+
+    def close(self):
+        self.socket.close()
+
+
+class FakeCore:
+    def __init__(self, path, handler):
+        self.path = path
+        self.handler = handler
+        self.server = socket.socket(socket.AF_UNIX)
+        self.server.bind(str(path))
+        self.server.listen(4)
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self):
+        while True:
+            try:
+                connection, _ = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self.talk, args=(connection,), daemon=True).start()
+
+    def talk(self, connection):
+        with connection, connection.makefile("rw") as stream:
+            for line in stream:
+                request = json.loads(line)
+                reply = self.handler(request)
+                reply["jsonrpc"] = "2.0"
+                reply["id"] = request["id"]
+                stream.write(json.dumps(reply) + "\n")
+                stream.flush()
+
+    def stop(self):
+        self.server.close()
+
+
+class PlanViewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="pv", dir="/tmp"))
+        for name in ("run", "state", "cache", "data", "config", "stubs", "plans"):
+            (cls.tmp / name).mkdir()
+        (cls.tmp / "run").chmod(0o700)
+        cls.calls = cls.tmp / "calls.log"
+        stubs = cls.tmp / "stubs"
+        (stubs / "chromium").write_text(f'#!/bin/sh\necho "chromium $*" >> "{cls.calls}"\n')
+        (stubs / "hyprctl").write_text(f'#!/bin/sh\necho "hyprctl $*" >> "{cls.calls}"\necho "[]"\n')
+        for stub in stubs.iterdir():
+            stub.chmod(0o755)
+        cls.env = {
+            **{k: v for k, v in os.environ.items() if k not in ("HERDR_CORE_SOCKET", "PLAN_VIEW_WINDOW")},
+            "HC_SESSION": f"pvt{os.getpid()}",
+            "XDG_RUNTIME_DIR": str(cls.tmp / "run"),
+            "XDG_STATE_HOME": str(cls.tmp / "state"),
+            "XDG_CACHE_HOME": str(cls.tmp / "cache"),
+            "XDG_DATA_HOME": str(cls.tmp / "data"),
+            "XDG_CONFIG_HOME": str(cls.tmp / "config"),
+            "PATH": f"{stubs}:{os.environ['PATH']}",
+        }
+        cls.socket_path = cls.tmp / "run" / "herdr-core" / f"{cls.env['HC_SESSION']}.sock"
+        subprocess.run(["hc", "server", "start"], env=cls.env, check=True, capture_output=True)
+        warm_up = cls.tmp / "plans" / "warm-up.md"
+        warm_up.write_text("# Warm up\n")
+        subprocess.run(
+            [str(PLAN_VIEW), str(warm_up)],
+            env={**cls.env, "HERDR_CORE_SOCKET": str(cls.tmp / "none.sock"), "PLAN_VIEW_WINDOW": "1"},
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+        deadline = time.time() + 5
+        while not cls.calls.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.3)
+
+    @classmethod
+    def tearDownClass(cls):
+        subprocess.run(["hc", "server", "stop"], env=cls.env, capture_output=True)
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        self.calls.write_text("")
+        self.core = CoreClient(self.socket_path)
+        self.addCleanup(self.core.close)
+        self.core.set("plans", [])
+
+    def make_plan(self, name="plan.md", text="# Title here \n\nBody\n"):
+        path = self.tmp / "plans" / name
+        path.write_text(text)
+        return path
+
+    def run_plan_view(self, *args, **extra_env):
+        return subprocess.run(
+            [str(PLAN_VIEW), *map(str, args)],
+            env={**self.env, **extra_env},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def called(self, tool, wait=2.0):
+        deadline = time.time() + wait
+        while True:
+            if any(line.startswith(tool) for line in self.calls.read_text().splitlines()):
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    def not_called(self, tool):
+        time.sleep(0.5)
+        return not self.called(tool, wait=0)
+
+    def stderr_lines(self, result):
+        return [line for line in result.stderr.splitlines() if line]
+
+    def test_office_only(self):
+        path = self.make_plan("office.md")
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        value = self.core.get(f"plan-{file_id(path)}")["value"]
+        self.assertEqual(set(value), {"title", "source", "markdown", "updated", "open"})
+        self.assertTrue(value["open"])
+        self.assertEqual(value["markdown"], path.read_text())
+        self.assertEqual(value["title"], "Title here")
+        self.assertEqual(value["source"], str(path))
+        self.assertEqual(self.core.get("plans")["value"][0], file_id(path))
+        self.assertTrue(self.not_called("chromium"))
+
+    def test_window_on(self):
+        path = self.make_plan("window.md")
+        result = self.run_plan_view(path, PLAN_VIEW_WINDOW="1")
+        self.assertEqual(result.returncode, 0)
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+        self.assertTrue(self.called("chromium"))
+
+    def test_missing_socket(self):
+        path = self.make_plan("nosocket.md")
+        result = self.run_plan_view(path, HERDR_CORE_SOCKET=str(self.tmp / "none.sock"))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(self.stderr_lines(result)), 1)
+        self.assertTrue(self.called("chromium"))
+
+    def test_missing_socket_with_window(self):
+        path = self.make_plan("nosocket2.md")
+        result = self.run_plan_view(
+            path, HERDR_CORE_SOCKET=str(self.tmp / "none.sock"), PLAN_VIEW_WINDOW="1"
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(self.called("chromium"))
+
+    def test_large_file(self):
+        path = self.make_plan("big.md", "# Big\n" + "x" * 1100000)
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(self.stderr_lines(result)), 1)
+        self.assertEqual(self.core.get(f"plan-{file_id(path)}")["version"], 0)
+        self.assertTrue(self.called("chromium"))
+
+    def test_close(self):
+        path = self.make_plan("close.md")
+        self.run_plan_view(path)
+        result = self.run_plan_view("--close", path)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(self.core.get(f"plan-{file_id(path)}")["value"]["open"])
+        self.assertTrue(self.called("hyprctl"))
+
+    def test_prune(self):
+        old_closed, new_closed, old_open = "a" * 12, "b" * 12, "c" * 12
+        seeds = {
+            old_closed: {"open": False, "updated": iso(8)},
+            new_closed: {"open": False, "updated": iso(0)},
+            old_open: {"open": True, "updated": iso(8)},
+        }
+        for plan_id, value in seeds.items():
+            self.core.set(f"plan-{plan_id}", {"title": "t", "source": "s", "markdown": "m", **value})
+        self.core.set("plans", [old_closed, new_closed, old_open])
+        path = self.make_plan("prune.md")
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            self.core.get("plans")["value"], [file_id(path), new_closed, old_open]
+        )
+        self.assertIsNone(self.core.get(f"plan-{old_closed}")["value"])
+        self.assertIsNotNone(self.core.get(f"plan-{new_closed}")["value"])
+
+    def test_publish_twice(self):
+        path = self.make_plan("twice.md")
+        other = self.make_plan("other.md")
+        self.run_plan_view(path)
+        self.run_plan_view(other)
+        self.run_plan_view(path)
+        plans = self.core.get("plans")["value"]
+        self.assertEqual(plans, [file_id(path), file_id(other)])
+
+    def test_odd_file_name(self):
+        path = self.make_plan("it's a plan.md")
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def write_skip(self, *lines):
+        skip = self.tmp / "config" / "plan-view" / "skip"
+        skip.parent.mkdir(exist_ok=True)
+        skip.write_text("\n".join(lines) + "\n")
+        self.addCleanup(lambda: skip.unlink(missing_ok=True))
+
+    def make_plan_in(self, directory, name="plan.md"):
+        folder = self.tmp / directory
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text("# Skip test\n")
+        return path
+
+    def assert_skipped(self, result, path):
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(self.stderr_lines(result)), 1)
+        self.assertEqual(self.core.get(f"plan-{file_id(path)}")["version"], 0)
+        self.assertTrue(self.called("chromium"))
+
+    def test_skip_listed_dir(self):
+        path = self.make_plan_in("secret")
+        self.write_skip(str(self.tmp / "secret"))
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn("skip list", result.stderr)
+
+    def test_skip_other_dir_published(self):
+        path = self.make_plan_in("open")
+        self.write_skip(str(self.tmp / "secret"))
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_skip_symlinked_plan(self):
+        target = self.make_plan_in("secret2")
+        link_dir = self.tmp / "links"
+        link_dir.mkdir(exist_ok=True)
+        link = link_dir / "plan.md"
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+        self.write_skip(str(self.tmp / "secret2"))
+        result = self.run_plan_view(link)
+        self.assert_skipped(result, target)
+
+    def test_skip_symlinked_prefix(self):
+        path = self.make_plan_in("real")
+        alias = self.tmp / "alias"
+        alias.unlink(missing_ok=True)
+        alias.symlink_to(self.tmp / "real")
+        self.write_skip(str(alias))
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+
+    def test_skip_prefix_needs_separator(self):
+        path = self.make_plan_in("ab")
+        (self.tmp / "a").mkdir(exist_ok=True)
+        self.write_skip(str(self.tmp / "a"))
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_skip_comments_and_home(self):
+        path = self.make_plan_in("homedir/sub")
+        self.write_skip("# a comment", "", "   ", "~/sub")
+        result = self.run_plan_view(path, HOME=str(self.tmp / "homedir"))
+        self.assert_skipped(result, path)
+
+    def test_skip_relative_line(self):
+        path = self.make_plan_in("rel")
+        self.write_skip("relative/dir")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn("bad line 1", result.stderr)
+
+    def test_skip_with_window_on(self):
+        path = self.make_plan_in("secret3")
+        self.write_skip(str(self.tmp / "secret3"))
+        result = self.run_plan_view(path, PLAN_VIEW_WINDOW="1")
+        self.assert_skipped(result, path)
+
+    def make_marker(self, directory):
+        folder = self.tmp / directory
+        folder.mkdir(parents=True, exist_ok=True)
+        marker = folder / ".plan-view-no-office"
+        marker.write_text("")
+        self.addCleanup(lambda: marker.unlink(missing_ok=True))
+
+    def test_office_env_off(self):
+        path = self.make_plan_in("envdir")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="0")
+        self.assert_skipped(result, path)
+        self.assertIn("PLAN_VIEW_OFFICE=0", result.stderr)
+
+    def test_office_env_off_with_window_on(self):
+        path = self.make_plan_in("envdir2")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="0", PLAN_VIEW_WINDOW="1")
+        self.assert_skipped(result, path)
+
+    def test_office_env_on(self):
+        path = self.make_plan_in("envdir3")
+        result = self.run_plan_view(path, PLAN_VIEW_OFFICE="1")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_marker_in_own_folder(self):
+        path = self.make_plan_in("marked1")
+        self.make_marker("marked1")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+        self.assertIn(".plan-view-no-office", result.stderr)
+
+    def test_marker_two_folders_above(self):
+        path = self.make_plan_in("marked2/one/two")
+        self.make_marker("marked2")
+        result = self.run_plan_view(path)
+        self.assert_skipped(result, path)
+
+    def test_marker_in_sibling_only(self):
+        path = self.make_plan_in("tree3/plans")
+        self.make_marker("tree3/other")
+        result = self.run_plan_view(path)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(path)}")["value"])
+
+    def test_marker_with_symlinked_plan(self):
+        target = self.make_plan_in("marked4/sub")
+        self.make_marker("marked4")
+        link_dir = self.tmp / "links4"
+        link_dir.mkdir(exist_ok=True)
+        link = link_dir / "plan.md"
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+        result = self.run_plan_view(link)
+        self.assert_skipped(result, target)
+
+    def test_skip_whole_path_components(self):
+        base = self.tmp / "x"
+        base.mkdir(exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(base, ignore_errors=True))
+        listed_file = base / "private"
+        listed_file.write_text("# Exact\n")
+        self.write_skip(str(listed_file))
+        self.assert_skipped(self.run_plan_view(listed_file), listed_file)
+        listed_file.unlink()
+        inside = self.make_plan_in("x/private")
+        self.assert_skipped(self.run_plan_view(inside), inside)
+        sibling = self.make_plan_in("x/private-old")
+        result = self.run_plan_view(sibling)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIsNotNone(self.core.get(f"plan-{file_id(sibling)}")["value"])
+
+    def test_conflict_retry(self):
+        store = {}
+        failed = []
+
+        def handler(request):
+            params = request["params"]
+            name = params["name"]
+            entry = store.get(name, {"value": None, "version": 0})
+            if request["method"] == "doc.get":
+                return {"result": entry}
+            if name == "plans" and not failed:
+                failed.append(True)
+                return {"error": {"code": -32000, "message": "conflict", "data": {"kind": "conflict"}}}
+            store[name] = {"value": params["value"], "version": entry["version"] + 1}
+            return {"result": {"version": entry["version"] + 1}}
+
+        fake_path = self.tmp / "fake.sock"
+        fake = FakeCore(fake_path, handler)
+        self.addCleanup(fake.stop)
+        path = self.make_plan("conflict.md")
+        result = self.run_plan_view(path, HERDR_CORE_SOCKET=str(fake_path))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(failed)
+        self.assertEqual(store["plans"]["value"], [file_id(path)])
+        self.assertTrue(self.not_called("chromium"))
+
+    def test_error_replies(self):
+        def handler(request):
+            return {"error": {"code": -32000, "message": "broken"}}
+
+        fake_path = self.tmp / "broken.sock"
+        fake = FakeCore(fake_path, handler)
+        self.addCleanup(fake.stop)
+        path = self.make_plan("broken.md")
+        result = self.run_plan_view(path, HERDR_CORE_SOCKET=str(fake_path))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(self.stderr_lines(result)), 1)
+        self.assertTrue(self.called("chromium"))
+
+
+if __name__ == "__main__":
+    unittest.main()
