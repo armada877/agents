@@ -48,6 +48,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | `herdr pane split` | `herdr-app do pane.split --direction right --argv '[...]'` |
 | `herdr pane report-metadata --token role=... --token rank=N` | labels at start: `--label role=<hypervisor\|supervisor\|orchestrator\|worker> --label rank=<1-4>`; later: `hc label <n> role=... rank=...` |
 | `herdr server reload-config` | Not needed. The app reloads files in `~/.config/herdr-app` by itself. |
+| assistant role | The optional personal assistant (`hc-assistant` skill) runs in its own directory and space: `--label role=assistant --label rank=1.5`. It reports to the hypervisor and starts no agents. |
 | agents pane view | The app's layouts and the `agents` mod. Find role and rank with `hc ls --label role=supervisor`. |
 
 ## Trust prompt
