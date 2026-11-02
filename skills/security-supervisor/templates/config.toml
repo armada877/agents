@@ -1,0 +1,22 @@
+owner = "Your Name"
+host = "your-host"
+audit_repo = "/home/you/Work/host-security"
+supervisor = "sup-host-security"
+
+[[project]]
+name = "example"
+path = "/home/you/Work/example"
+supervisor = "sup-example"
+channel = "sendmessage"
+
+[[package_watch]]
+package = "example-package"
+flaw = "Name of the flaw, its date, and its source"
+installed_version = "1.2.3-1"
+installed_from = "the distribution mirror"
+bulletin_url = "https://vendor.example/security"
+release_url = "https://github.com/vendor/project/releases"
+package_page_url = "https://distro.example/packages/example-package"
+mirror_db = "https://mirror.example/packages.db"
+fixed_in = ""
+stop_when = "The mirror has the fixed version or newer."
