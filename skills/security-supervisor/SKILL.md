@@ -112,7 +112,8 @@ The cron prompt has the steps. These rules apply also:
 
 ## Reviews from peer supervisors
 
-Other supervisors send you plans and code for a security review.
+Other supervisors, and orchestrators of other repos, send you plans and code
+for a security review.
 
 1. Read the plan or the diff at the exact commit that they name. Read only.
 2. Check what changed since the hash that you last agreed to.
