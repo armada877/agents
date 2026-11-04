@@ -152,8 +152,10 @@ question.
 
 - Stay inside the plan and its "Out of scope" list.
 - Do not edit a supplied plan or the board. Your owner owns them.
-- Do not merge, rebase onto another branch, push, or open a pull request
-  without your owner's instruction and the user's approval.
+- Push your work branch and open or update its pull request only when your
+  owner tells you to. You do not need the user's approval for this.
+- Do not merge, rebase onto another branch, or push to a shared branch without
+  your owner's instruction and the user's approval.
 - Do not edit files outside your place, except the exact report path from your
   first prompt.
 - Do not start or stop agents. Do not prompt an agent, except your owner
