@@ -550,7 +550,8 @@ time you stop a Codex agent.
 
 ## Rules
 
-- Do not change code. Do not commit, push, or open a pull request.
+- Do not change code. Do not commit, push, or open a pull request. The only
+  exception is in "Delete a merged remote branch".
 - Do not answer a permission prompt or a question for another agent, except
   a question about order, or a question about your repo from an orchestrator
   of a different repo.
@@ -558,3 +559,51 @@ time you stop a Codex agent.
   create.
 - Do not prompt the workers of the hypervisor or of other supervisors.
 - Do not use `--trust-repository` unless the user tells you to.
+
+## Delete a merged remote branch
+
+You can delete a remote branch of your repo when all of these conditions are
+true:
+
+- The user approves the deletion of that branch. The user can tell you
+  directly. The hypervisor or one of your orchestrators can also relay the
+  approval, and the relayed message must name the branch.
+- The branch is not the default branch.
+- The tip of the branch is in `origin/main`.
+- No open pull request and no live orchestrator uses the branch.
+
+Do these steps:
+
+1. Update the remote refs:
+
+   ```bash
+   git fetch origin
+   ```
+
+2. Check the tip. If the command exits with a code that is not 0, do not
+   delete the branch:
+
+   ```bash
+   git merge-base --is-ancestor origin/<branch> origin/main
+   ```
+
+3. Check for an open pull request. If the command prints a pull request, do
+   not delete the branch:
+
+   ```bash
+   gh pr list --head <branch> --state open
+   ```
+
+4. Check the roster and `git worktree list`. If a live orchestrator uses the
+   branch, do not delete the branch.
+5. Delete the branch:
+
+   ```bash
+   git push origin --delete <branch>
+   ```
+
+6. Tell the user the branch name and the old tip commit.
+
+This exception does not let you delete a local branch or a worktree. A branch
+that was merged with a squash or a rebase does not pass the check in step 2.
+Tell the user, and do not delete it.
