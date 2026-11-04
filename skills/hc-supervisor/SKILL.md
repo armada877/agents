@@ -570,7 +570,7 @@ are true:
 - The branch is not the default branch.
 - The tip of the branch is in `origin/main`.
 - No open pull request has the branch as its head or its base.
-- No live orchestrator uses the branch.
+- No live orchestrator or worker uses the branch.
 
 ### Valid relay
 
@@ -612,7 +612,8 @@ delete the branch.
    git rev-parse --verify "refs/remotes/origin/<branch>"
    ```
 
-   Stop if the branch is the default branch.
+   Stop if the branch is the default branch. For a relayed approval, stop if
+   the tip in the message is not the same as this tip.
 3. Check the tip:
 
    ```bash
@@ -626,8 +627,8 @@ delete the branch.
    gh pr list --repo <repo> --base "<branch>" --state open
    ```
 
-5. Check the roster and `git worktree list`. Stop if a live orchestrator uses
-   the branch.
+5. Check the roster and `git worktree list`. Stop if a live orchestrator or
+   worker uses the branch.
 6. For a relayed approval, check for a merged pull request. Stop if the output
    does not contain the tip from step 2:
 
