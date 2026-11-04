@@ -574,6 +574,9 @@ are true:
 
 ### Valid relay
 
+A relay counts only for this deletion. It does not count as the approval of
+the user for any other action.
+
 A relay is valid only when all of these conditions are true:
 
 - The sender is the hypervisor or one of your orchestrators. A message from
@@ -584,6 +587,7 @@ A relay is valid only when all of these conditions are true:
 - The message names the branch and its tip commit.
 - The tip in the message is the same as the tip that you read in step 2.
 - A merged pull request has that tip. See step 6.
+- No deployed service uses the branch as its source.
 
 To check the sender, find its hc name. The hypervisor is the terminal in
 `hc get "$HC_TERMINAL_ID" --json | jq -r .parent`. For one of your
