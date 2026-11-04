@@ -29,7 +29,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | `herdr agent start <n> --kind claude --pane <p> -- <args>` | `hc run --bg --name <n> --cwd <dir> --label ... -- env -u CLAUDE_CODE_CHILD_SESSION claude <args> "<first prompt>"`. The last argument is the first message. Use `--outlive-parent` when the agent must survive its starter (supervisors, orchestrators). Workers stay children of their orchestrator (the default), so they end with it. |
 | `herdr agent rename` | Not available. Use `--name` at start. |
 | Cursor agent | `hc run ... -- env -u CLAUDE_CODE_CHILD_SESSION cursor-agent <args>` (status reports from Cursor are not verified) |
-| `herdr-send <n> "<text>"` | `hc-send <n> "<text>" [--timeout ms]`: waits until the agent is idle or done and its input box is empty, then sends |
+| `herdr-send <n> "<text>"` | `hc-send <n> "<text>" [--timeout ms]`: waits until the agent is idle or done and its input box is empty, then sends. The `--timeout` default is 10 minutes |
 | `herdr-claude-session <n>` | `hc-claude-session <n>` prints the SendMessage address; `--id` prints the session ID for `claude --resume` |
 | Child reports | A child that runs `hc send $PARENT "<report>"` arrives as `<hc from="t7 name">…</hc>`. hc also notifies a parent when a child blocks, errors, or exits. `hc wait --children any` waits for the next news. |
 
