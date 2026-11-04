@@ -244,6 +244,14 @@ Keep only one plan open. Run `plan-view --close <old-file>` before you show a
 new plan.
 After approval, run `plan-view --close <file>`.
 
+If `plan-publish` is on `PATH`, and the user may be away from the PC, run
+`plan-publish <file>` after `plan-view <file>`. Run plan-view first, because
+it installs the renderer. plan-publish puts the plan on a private web page,
+prints the URL, and sends a push to the user's phone. Each run sends a push,
+so publish only plans that need the user's approval. Use `--no-push` to get
+only the URL. The page expires after 7 days. Publish it again when needed.
+If plan-publish refuses the file, use plan-view only.
+
 A worker writes its plan and reports `needs-input`. It does not run plan-view.
 You show the plan and send the user's answer to your worker.
 An orchestrator's plan for a worker can be longer than one page.
