@@ -306,24 +306,27 @@ gets a new worktree. The main checkout is yours.
    `hc run`. The last argument is the first prompt (see "First prompt"):
 
    ```bash
-   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=<own-space> --label herdr.tab=orch-<topic> -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
+   hc run --bg --name orch-<topic> --cwd <worktree-path> --outlive-parent --label role=orchestrator --label rank=3 --label herdr.space=orch-<topic> --label herdr.tab=orch-<topic>-main -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    `--outlive-parent` keeps the orchestrator running when your own program
-   ends. The labels give it its role, its rank, and its own tab in your space
-   in the app. Get your space with
-   `hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.space"]'`. The
+   ends. The labels give it its role, its rank, and its own space in the app. hc
+   has no separate step to make a space. The labels make it. The
    app reads these labels only when it first sees the terminal: changing them
    later does not move a live tab. Add the model flag after `<kind>` if the entry has a model. Do not
    pass a permission mode. The user's settings for the agent set the default.
    For Claude, the auto mode classifier blocks `--permission-mode auto` when
    you start an agent.
 
-   Then name its tab after the agent. Each tab name is the agent name:
+   Then name its tab and its space after the agent. Each name is the agent
+   name:
 
    ```bash
-   herdr-app do tab.rename --id orch-<topic> --name orch-<topic>
+   herdr-app do tab.rename --id orch-<topic>-main --name orch-<topic>
+   herdr-app do space.rename --id orch-<topic> --name orch-<topic>
    ```
+
+   A rename can report `no tab` for one second after the start. Run it again.
 
 6. Read `first_message.sent` in the result. If it is false, read the terminal
    with `hc read orch-<topic> --lines 40`. Show a folder trust prompt to the

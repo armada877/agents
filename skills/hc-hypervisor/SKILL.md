@@ -253,11 +253,15 @@ repo. Do not start a second supervisor for a repo that has one.
      --outlive-parent -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
-   Then name its tab after the agent. Each tab name is the agent name:
+   Then name its tab and its space after the agent. Each name is the agent
+   name:
 
    ```bash
    herdr-app do tab.rename --id sup-<repo>-main --name sup-<repo>
+   herdr-app do space.rename --id sup-<repo> --name sup-<repo>
    ```
+
+   A rename can report `no tab` for one second after the start. Run it again.
 
    Add the model flag after `<kind>` if the entry has a model. Do not pass a
    permission mode. The user's settings for the agent set the default. For
