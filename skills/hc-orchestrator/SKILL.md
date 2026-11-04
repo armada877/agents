@@ -491,16 +491,16 @@ When the `impl` worker reports `done`:
 4. If the work is correct, set the status to `ready-to-merge`. Tell the user
    what changed and what you checked.
 
+You do not need the user's approval to push your own work branch or to open
+or update its pull request. Do it yourself, or tell the `pr` worker to do it.
+Then tell the user the pull request link.
+
 You must ask the user before you:
 
-- merge a branch
-- push to a remote
-- open, update, or merge a pull request
+- merge a branch or a pull request
+- push to a shared branch, such as `main`, `develop`, or another agent's branch
 - answer a worker's approval prompt
 - delete a branch that is not merged
-
-After the user approves, do the action yourself, or tell the `pr` worker to do
-it.
 
 If a merge or a deploy can conflict with the work of another orchestrator in
 the repo, you can ask your supervisor about the order.
