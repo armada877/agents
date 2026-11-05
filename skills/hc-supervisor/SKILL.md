@@ -143,10 +143,10 @@ supervisor. They need no approval from the user. These messages are an
 exception to "Pass messages between orchestrators" and "Messages from
 orchestrators of other repos". Do not relay a round.
 
-A pass names the exact commit. For a deploy, it also names the image digest
-and the unit files, if the deploy has them. A change needs a new pass. A
-change after a deploy approval makes that approval invalid, unless the user
-approved that exact hash.
+A pass names the exact commit or file hash. For a deploy, it also names the
+image digest and the unit files, if the deploy has them. A change needs a new
+pass. A change after a deploy approval makes that approval invalid, unless the
+user approved that exact hash.
 
 The user still decides the plan scope, wider access, an accepted risk, and
 deploy approvals. A fix that changes one of these goes back to the user. The
@@ -173,8 +173,8 @@ words. The delta names the approved plan or design artifact and the deploy
 hash. It lists each open finding. If there is no delta, write "no delta". If
 no plan or design artifact was approved, write that, not "no delta".
 
-If you did not report a delta, the approval is invalid. Stop, report the
-delta, and ask again.
+If you did not report a delta, or the delta left out a change or an open
+finding, the approval is invalid. Stop, report the delta, and ask again.
 
 The deploy reviewer checks that the delta is complete. This check is a review,
 not an approval.
