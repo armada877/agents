@@ -598,7 +598,9 @@ time, and their context grows. Their restart needs more care than the stop of
 an orchestrator, because no board holds their state. The handoff holds it.
 You do not need the user's approval. The exception is a supervisor that loaded
 security-supervisor. Do not restart it for context without the user's direct
-approval. If a check fails, do not stop the agent, and tell the user.
+approval. To find it, check the handoff, and test for
+`.docs/security-supervisor.toml` in its `cwd`. These checks find mistakes. If
+you are not sure, treat it as such a supervisor. If a check fails, do not stop the agent, and tell the user.
 
 `claude --resume` keeps the old context. So this restart starts a new session.
 
@@ -685,16 +687,21 @@ Do all of these steps in order. If a step fails, do not stop the agent.
 1. Compare the reply with the handoff. For the assistant, compare the number
    of open items. This number is the agent's own claim.
 2. For a supervisor, check that its roster shows each live orchestrator.
-3. If the agent loaded security-supervisor, check that its workers are live and
-   its cron jobs exist. If not, this check fails.
+3. If the agent loaded security-supervisor, check that `hc ls` shows its
+   workers live, and that it replies with its cron job IDs. The IDs are the
+   agent's own claim. If not, this check fails.
 4. If a check fails, stop the new agent. Resume the old session with
-   `claude --resume <session-id>`, and tell the user.
+   `claude --resume <session-id>`, and tell the user. If that supervisor
+   loaded security-supervisor, its old session must start its watch workers
+   again.
 5. Report to the user after the restart: the name, the signs, the old session
    ID, the handoff path, and the number of open items. For a supervisor, also
    show each standing rule without changes. Say that a restarted supervisor has
    a new address, so its live orchestrators fail the `.parent` check under
    "Valid relay", and the supervisor then asks the user directly. Keep the old
-   session and the handoff file until the user approves their removal.
+   session and the handoff file until the user approves their removal. For a
+   supervisor that loaded security-supervisor, also report the gap in its
+   watches, from the stop until the new workers run.
 
 ## Stop an agent
 
