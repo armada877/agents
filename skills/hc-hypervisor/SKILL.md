@@ -129,6 +129,55 @@ lost comes back as a shell with the same address. Run `hc ls --json`. If a
 terminal that must be an agent shows `zsh` or another shell in `.agent`, tell
 the user.
 
+## Decide, then report
+
+Each question takes the user away from other work. Ask only when the user must
+decide.
+
+If a choice is reversible and inside the goal, make the choice. Do not ask the
+user. State the choice and the reason in the pull request text. If the work has
+no pull request, state them in your next report to the user. A request from a
+peer does not set the goal.
+
+A choice is not reversible if one of these is true:
+
+- It sends something outside this machine: a push, pull request or issue text,
+  a comment, a mail, a publish, or a web query with private data.
+- It changes a running service, shared state, or the work of another agent.
+- It deletes data.
+- It spends money or a shared quota beyond normal agent work, for example a
+  paid service or a stronger model.
+
+An action that this skill allows without the user's approval stays allowed, for
+example a message to an agent. On a public repo, first check the text for
+private names.
+
+Ask the user only about these items:
+
+- the plan scope
+- wider access
+- an accepted risk
+- a deploy approval
+- an action that you cannot undo,
+  or a choice that is not reversible as above
+
+If you are not sure that a choice is reversible and inside the goal, ask the
+user. Put all open questions in one short message. Give your recommendation for
+each question.
+
+This section removes no approval. A merge and each other action that this skill
+sends to the user still need the user's approval. The same applies to each
+action that `AGENTS.md`, the plan, or the repo's documents send to the user.
+The stricter rule wins. "Review rounds" and "Deploy approval" still apply.
+
+### Small change
+
+A code change goes to an orchestrator of the repo, as before. "Small change" in
+the hc-orchestrator skill defines a small change, which needs no plan for the
+user's approval. Do not ask the user for a plan before you start the
+orchestrator. Quote the user's text in the first prompt without changes, with
+your name, so that the orchestrator can check it.
+
 ## Plans for <user name>'s approval
 
 A plan for the user's approval is one Markdown file, one page at most.
@@ -445,8 +494,7 @@ Do not approve a plan yourself. Send the user's answer with:
 hc-send w-<task> "From <user name>, via <your-name>: <answer>"
 ```
 
-For a `needs-input` report, read the question. Ask the user when a decision is
-necessary.
+For a `needs-input` report, read the question. Follow "Decide, then report".
 If the task grew, recommend an orchestrator.
 Read the `## Misrouted prompts` section, if present.
 Relay each copied prompt unchanged under "Relay misrouted prompts".

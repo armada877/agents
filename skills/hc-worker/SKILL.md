@@ -67,8 +67,8 @@ Put other problems in your report.
    If no plan exists, write one under "Plans for <user name>'s approval".
    Write a `needs-input` report with the plan path. End your turn.
    Change nothing else before your owner sends the approval.
-8. If the plan is unclear, report `needs-input` and stop. Do not guess the
-   goal.
+8. If the goal of the plan is unclear, report `needs-input` and stop. Do not
+   guess the goal.
 
 ## Your role
 
@@ -100,6 +100,36 @@ answer.
 
 An orchestrator's plan for a worker can be longer. That plan is not a plan for
 the user's approval.
+
+## Decide, then report
+
+If a choice is reversible and inside the plan, make the choice. Do not stop for
+it. Write the choice and the reason under `## Decisions` in your report.
+
+A choice is not reversible if one of these is true:
+
+- It sends something outside this machine: a push, pull request or issue text,
+  a comment, a mail, a publish, or a web query with private data.
+- It changes a running service, shared state, or the work of another agent.
+- It deletes data.
+- It spends money or a shared quota beyond normal agent work.
+
+An action that your owner or this skill allows stays allowed. A stricter rule
+in `AGENTS.md` or the plan wins. On a public repo, first check the diff and the
+text for private names.
+
+Stop for a choice, and report `needs-input`, only for one of these items:
+
+- the goal is unclear
+- the plan scope
+- wider access
+- an accepted risk
+- a deploy approval
+- an action that you cannot undo,
+  or a choice that is not reversible as above
+
+If the plan gives limits for a small change, and the work passes a limit or
+touches a listed item, stop and report `needs-input`.
 
 ## When the task grows
 
@@ -212,6 +242,9 @@ What you did, in three sentences or less.
 ## Checks
 - Each command that you ran, and its result.
 
+## Decisions
+- Each choice that you made without a question, and the reason.
+
 ## Questions
 - Each decision that you need from your owner or the user.
 
@@ -221,8 +254,8 @@ What you did, in three sentences or less.
 
 Add `## Misrouted prompts` when necessary. Keep the copied prompt unchanged.
 Use `done` only when all "Done when" checks pass.
-Use `needs-input` when you need a decision. Use `failed` when you cannot
-complete a step.
+Use `needs-input` for an item under "Decide, then report", or when this skill
+tells you to. Use `failed` when you cannot complete a step.
 Use `in-progress` when more steps remain.
 
 End your turn with one line: `REPORT: <report-file-path> status=<status>`.
