@@ -61,7 +61,8 @@ Use SendMessage only when both the sender and the target are Claude agents.
 Otherwise, use `hc-send <name> "<text>"`.
 Find a Claude agent's address with `hc-claude-session <name>` or ListAgents.
 The hypervisor is the hc terminal whose label is `role=hypervisor`
-(`hc ls --json --label role=hypervisor`). `hc send <address> "<text>"` always reaches it.
+(`hc ls --json --label role=hypervisor`). Exactly one live match. Otherwise
+tell the user. `hc send <address> "<text>"` always reaches it.
 Send a reply to the message's `from` address.
 
 You do not own workers.
