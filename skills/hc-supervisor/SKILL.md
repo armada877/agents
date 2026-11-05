@@ -596,6 +596,25 @@ possible conflict, and when the user or the hypervisor asks:
 Tell the user about each conflict, and recommend one owner or an order. Do
 not tell an orchestrator to change its work.
 
+## Handoff
+
+The hypervisor can tell you to write a handoff before a restart for context.
+The new session has only this file, so make it complete. Write it to
+`${XDG_STATE_HOME:-$HOME/.local/state}/hc-hypervisor/<your-name>-handoff.md`.
+Do not start new work after you write it.
+
+Write these items:
+
+- your name, your repo, your checkout, and each extra skill that you loaded
+- each standing rule from the user, in the user's own words
+- each live orchestrator: its goal, its board path, and its state
+- each open item: the owner, the state, and the next action. Open items include
+  held notes, open relays, questions to the user, and review rounds.
+- each approval that you wait for
+
+An approval that you did not use yet does not continue. Write it as an open
+item, and the new session asks the user again. Do not write secrets.
+
 ## Stop an orchestrator
 
 You have authority to stop an orchestrator on your roster. You do not need the

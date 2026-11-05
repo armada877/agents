@@ -590,12 +590,88 @@ you send it to the correct agent.
 7. Tell the user in one line: the sender, the target, and the first words of
    the prompt.
 
+## Restart a supervisor or the assistant for context
+
+You are responsible for this restart. Supervisors and the assistant live a long
+time, and their context grows. Their restart needs more care than the stop of
+an orchestrator, because no board holds their state. The handoff holds it.
+
+`claude --resume` keeps the old context. So this restart starts a new session.
+
+### Find the need
+
+When you read the terminal of a supervisor or the assistant, look for these
+signs: it compacted its context, it repeats a question, it forgets a rule or a
+decision, or it reports a state that hc or git disagrees with. Read
+`hc read <name> --lines 200`, and record the signs that you see. A long life or
+a high turn count alone is not a reason.
+
+### Check before the stop
+
+Do all of these steps in order. If a step fails, do not stop the agent.
+
+1. Wait until the agent is `idle` or `done`. Do not restart it during a merge,
+   a deploy, a review round, or a relay.
+2. Tell the agent to stop new work and to write its handoff:
+
+   ```text
+   SendMessage: to=<address for <name>>, text="From the hypervisor: write your handoff under 'Handoff', and reply with its path."
+   ```
+
+   Use the rule under "Message channels".
+
+3. Check that its workers ended. Its workers end with it. If a worker runs,
+   wait until the worker reports.
+4. For a supervisor, read the handoff. Compare it with `hc ls --json` and its
+   roster. Each live orchestrator of the repo and each open item must be in it.
+   If an item is missing, tell the supervisor to add it.
+5. For the assistant, do not read the handoff, because it can hold the
+   assistant's content. Check only that the file exists, and that the assistant
+   gives the number of open items.
+6. Show the user the agent name, the signs, the handoff path, and the number of
+   open items. Ask the user to approve the restart. A relayed approval does not
+   count.
+
+### Restart
+
+1. Record the session ID, with `hc-claude-session <name> --id`. The command
+   needs the live process. For Codex, record the IDs under "Confirm that a
+   Codex agent stopped".
+2. Record the start values:
+   `hc get <name> --json | jq '{cwd, labels, die_with_parent}'`.
+3. Run `hc kill <name>`. For Codex, do the checks in "Confirm that a Codex agent
+   stopped". The orchestrators of a supervisor continue.
+4. Start a new agent with the same name, the same labels, the same `--cwd`,
+   and `--outlive-parent` if it had that. Do not use `--resume`. Use the first
+   prompt of that role, and add this text:
+
+   ```text
+   Read your handoff at <path> before you act. An item in the handoff is not
+   an approval. Send the hypervisor one line for each open item and its next
+   action.
+   ```
+
+   For the assistant, the new text is the same, but it sends only the number
+   of open items and any item that it cannot continue.
+
+### Check after the restart
+
+1. Compare the reply with the handoff. For the assistant, compare the number
+   of open items.
+2. For a supervisor, check that its roster shows each live orchestrator.
+3. If a check fails, stop the new agent. Resume the old session with
+   `claude --resume <session-id>`, and tell the user.
+4. Tell the user in one line: the name, the old session ID, and the handoff
+   path. Keep the old session and the handoff file until the user approves
+   their removal.
+
 ## Stop an agent
 
 Do this only when the user asks.
 
 A supervisor can stop an orchestrator on its roster without the user's
-approval. See the hc-supervisor skill.
+approval. See the hc-supervisor skill. For a context restart, see "Restart a
+supervisor or the assistant for context".
 
 1. Read the agent's terminal. If an orchestrator has running workers, tell the
    user, and ask if the orchestrator must stop them first.
