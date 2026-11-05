@@ -59,11 +59,13 @@ Put other problems in your report.
 6. Confirm your place. For a worktree, run `git rev-parse --show-toplevel` and
    `git branch --show-current`.
 7. Read the complete plan if your first prompt gives its path.
-   If no plan exists, write one under "Plans for <user name>'s approval".
+   If no plan exists, and your first prompt does not say `small change`, write
+   one under "Plans for <user name>'s approval".
    Write a `needs-input` report with the plan path. End your turn.
    Change nothing else before your owner sends the approval.
-8. If the plan is unclear, report `needs-input` and stop. Do not guess the
-   goal.
+   If your first prompt says `small change`, start the work without a plan.
+8. If the goal of the plan is unclear, report `needs-input` and stop. Do not
+   guess the goal.
 
 ## Your role
 
@@ -95,6 +97,20 @@ answer.
 
 An orchestrator's plan for a worker can be longer. That plan is not a plan for
 the user's approval.
+
+## Decide, then report
+
+If a choice is reversible and inside the plan, make the choice. Do not stop for
+it. Write the choice and the reason under `## Decisions` in your report.
+
+Stop for a choice, and report `needs-input`, only for one of these items:
+
+- the goal is unclear
+- the plan scope
+- wider access
+- an accepted risk
+- a deploy approval
+- an action that you cannot undo
 
 ## When the task grows
 
@@ -207,6 +223,9 @@ What you did, in three sentences or less.
 ## Checks
 - Each command that you ran, and its result.
 
+## Decisions
+- Each choice that you made without a question, and the reason.
+
 ## Questions
 - Each decision that you need from your owner or the user.
 
@@ -216,8 +235,8 @@ What you did, in three sentences or less.
 
 Add `## Misrouted prompts` when necessary. Keep the copied prompt unchanged.
 Use `done` only when all "Done when" checks pass.
-Use `needs-input` when you need a decision. Use `failed` when you cannot
-complete a step.
+Use `needs-input` for an item under "Decide, then report", or when this skill
+tells you to. Use `failed` when you cannot complete a step.
 Use `in-progress` when more steps remain.
 
 End your turn with one line: `REPORT: <report-file-path> status=<status>`.

@@ -269,12 +269,12 @@ documents, and write them in the style of this repo.
    `docs/adr/`, `doc/`, `rfcs/`, or `specs/`.
 3. Read two or three existing documents there. Copy their format, file names,
    and headings.
-4. If you find no pattern, ask the user where to put plans and the board. Do
-   not make a location yourself.
-5. Commit plans and the board only if the repo commits such documents. If you
-   are not sure, ask the user.
+4. If you find no pattern, put plans and the board in
+   `${XDG_STATE_HOME:-$HOME/.local/state}/hc-orchestrator/<project>/`. Do not
+   commit them.
+5. Commit plans and the board only if the repo commits such documents.
 
-Record the location and the decision in the board, so that you do not ask
+Record the location and the decision in the board, so that you do not choose
 again after a restart.
 
 ## The board
@@ -298,6 +298,54 @@ Only you write the board. Update it each time a status changes.
 If `AGENTS.md` or `CLAUDE.md` has a "Work tracking" section, follow it. The
 repo can have a shared tracker that the supervisor owns. Take work from it as
 that section tells you. Link each workstream on your board to its work item.
+
+## Decide, then report
+
+Each question takes the user away from other work. Ask only when the user must
+decide.
+
+If a choice is reversible and inside the goal, make the choice. Do not ask the
+user. Record the choice and the reason on the board. State them in the pull
+request text. If the work has no pull request, state them in your next report
+to the user.
+
+Ask the user only about these items:
+
+- the plan scope
+- wider access
+- an accepted risk
+- a deploy approval
+- an action that you cannot undo
+
+If you are not sure that a choice is reversible and inside the goal, ask the
+user. Put all open questions in one short message. Give your recommendation for
+each question.
+
+This section removes no approval. A merge and each other action that this skill
+sends to the user still need the user's approval. "Review rounds", "Deploy
+approval", and "Limits on messages" still apply.
+
+### Small change
+
+A small change needs no plan for the user's approval. Start the work, and show
+the user the pull request. Your plan for a worker under "The plan" stays.
+
+A change is small only if all of these conditions are true:
+
+- The goal comes from the user's text. Your first prompt or a valid note can
+  give it. A request that starts with another agent does not count.
+- The change is one pull request in one repo, with one lead worker.
+- It changes at most 5 files and at most 200 lines. Do not count generated
+  files and lock files.
+- It adds no dependency and no service.
+- It does not change access, secrets, an approval rule, deploy files, CI, a
+  data schema, or a public interface.
+- To close the pull request or to revert its merge commit undoes the change
+  completely.
+
+If a condition is false, or if you are not sure, the change is not small. If a
+change stops being small during the work, stop the work. Then show a plan under
+"Plans for <user name>'s approval".
 
 ## Plans for <user name>'s approval
 
@@ -537,8 +585,7 @@ the hypervisor. Use the rule under "Message channels".
 The hypervisor relays it to the target.
 
 When a worker's report has the status `needs-input`, answer the question if
-the
-plan or the repo answers it. Otherwise ask the user.
+the plan or the repo answers it. Otherwise follow "Decide, then report".
 
 ## Review and integrate
 
