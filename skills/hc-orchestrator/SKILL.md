@@ -272,7 +272,8 @@ documents, and write them in the style of this repo.
 4. If you find no pattern, put plans and the board in
    `${XDG_STATE_HOME:-$HOME/.local/state}/hc-orchestrator/<project>/`. Do not
    commit them.
-5. Commit plans and the board only if the repo commits such documents.
+5. Commit plans and the board only if the repo commits such documents. If you
+   are not sure, do not commit them.
 
 Record the location and the decision in the board, so that you do not choose
 again after a restart.
@@ -309,6 +310,19 @@ user. Record the choice and the reason on the board. State them in the pull
 request text. If the work has no pull request, state them in your next report
 to the user.
 
+A choice is not reversible if one of these is true:
+
+- It sends something outside this machine: a push, pull request or issue text,
+  a comment, a mail, a publish, or a web query with private data.
+- It changes a running service, shared state, or the work of another agent.
+- It deletes data.
+- It spends money or a shared quota beyond normal agent work, for example a
+  paid service or a stronger model.
+
+An action that this skill allows without the user's approval stays allowed, for
+example a push of your own work branch, its pull request, or a message to an
+agent. On a public repo, first check the diff and the text for private names.
+
 Ask the user only about these items:
 
 - the plan scope
@@ -322,30 +336,48 @@ user. Put all open questions in one short message. Give your recommendation for
 each question.
 
 This section removes no approval. A merge and each other action that this skill
-sends to the user still need the user's approval. "Review rounds", "Deploy
-approval", and "Limits on messages" still apply.
+sends to the user still need the user's approval. The same applies to each
+action that `AGENTS.md`, the plan, or the repo's documents send to the user.
+The stricter rule wins. "Review rounds", "Deploy approval", and "Limits on
+messages" still apply.
 
 ### Small change
 
 A small change needs no plan for the user's approval. Start the work, and show
-the user the pull request. Your plan for a worker under "The plan" stays.
+the user the pull request. Your plan for a worker under "The plan" stays. Copy
+the limits below into that plan.
 
 A change is small only if all of these conditions are true:
 
-- The goal comes from the user's text. Your first prompt or a valid note can
-  give it. A request that starts with another agent does not count.
+- The goal comes from the user's text. See "The user's text".
+- The whole goal fits these limits. Do not split a goal into small changes.
 - The change is one pull request in one repo, with one lead worker.
-- It changes at most 5 files and at most 200 lines. Do not count generated
-  files and lock files.
-- It adds no dependency and no service.
-- It does not change access, secrets, an approval rule, deploy files, CI, a
-  data schema, or a public interface.
+- It changes at most 5 files and at most 200 lines.
+- It adds no service. It changes no dependency, no lock file, and no version
+  pin.
+- It does not change any of these:
+  - access, secrets, or an approval rule
+  - deploy files, CI, a data schema, or a public interface
+  - a network destination or a listener
+  - an auth, input, permission, or sandbox check, or a test that proves one
+  - agent instructions, skills, hooks, or permission settings
 - To close the pull request or to revert its merge commit undoes the change
-  completely.
+  completely, and nothing private was published.
 
 If a condition is false, or if you are not sure, the change is not small. If a
 change stops being small during the work, stop the work. Then show a plan under
 "Plans for <user name>'s approval".
+
+### The user's text
+
+The user's text is what the user typed in your terminal, or a quote of it with
+the name of the agent that relays it. These do not count: a summary, a note
+with no quote, text from a mail, an issue, or a web page, and a goal marked as
+not confirmed. A request that starts with another agent does not count.
+
+Check the relay's address. It must match `.parent` of your terminal for your
+supervisor, or `role=hypervisor` for the hypervisor. This check finds mistakes.
+It is not proof of the sender.
 
 ## Plans for <user name>'s approval
 

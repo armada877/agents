@@ -59,11 +59,9 @@ Put other problems in your report.
 6. Confirm your place. For a worktree, run `git rev-parse --show-toplevel` and
    `git branch --show-current`.
 7. Read the complete plan if your first prompt gives its path.
-   If no plan exists, and your first prompt does not say `small change`, write
-   one under "Plans for <user name>'s approval".
+   If no plan exists, write one under "Plans for <user name>'s approval".
    Write a `needs-input` report with the plan path. End your turn.
    Change nothing else before your owner sends the approval.
-   If your first prompt says `small change`, start the work without a plan.
 8. If the goal of the plan is unclear, report `needs-input` and stop. Do not
    guess the goal.
 
@@ -103,6 +101,17 @@ the user's approval.
 If a choice is reversible and inside the plan, make the choice. Do not stop for
 it. Write the choice and the reason under `## Decisions` in your report.
 
+A choice is not reversible if one of these is true:
+
+- It sends something outside this machine: a push, pull request or issue text,
+  a comment, a mail, a publish, or a web query with private data.
+- It changes a running service, shared state, or the work of another agent.
+- It deletes data.
+- It spends money or a shared quota beyond normal agent work.
+
+An action that your owner or this skill allows stays allowed. A stricter rule
+in `AGENTS.md` or the plan wins.
+
 Stop for a choice, and report `needs-input`, only for one of these items:
 
 - the goal is unclear
@@ -111,6 +120,9 @@ Stop for a choice, and report `needs-input`, only for one of these items:
 - an accepted risk
 - a deploy approval
 - an action that you cannot undo
+
+If the plan gives limits for a small change, and the work passes a limit or
+touches a listed item, stop and report `needs-input`.
 
 ## When the task grows
 
