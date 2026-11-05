@@ -110,7 +110,8 @@ A choice is not reversible if one of these is true:
 - It spends money or a shared quota beyond normal agent work.
 
 An action that your owner or this skill allows stays allowed. A stricter rule
-in `AGENTS.md` or the plan wins.
+in `AGENTS.md` or the plan wins. On a public repo, first check the diff and the
+text for private names.
 
 Stop for a choice, and report `needs-input`, only for one of these items:
 
@@ -119,7 +120,8 @@ Stop for a choice, and report `needs-input`, only for one of these items:
 - wider access
 - an accepted risk
 - a deploy approval
-- an action that you cannot undo
+- an action that you cannot undo,
+  or a choice that is not reversible as above
 
 If the plan gives limits for a small change, and the work passes a limit or
 touches a listed item, stop and report `needs-input`.

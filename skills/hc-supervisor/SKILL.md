@@ -341,7 +341,8 @@ Ask the user only about these items:
 - wider access
 - an accepted risk
 - a deploy approval
-- an action that you cannot undo
+- an action that you cannot undo,
+  or a choice that is not reversible as above
 
 If you are not sure that a choice is reversible and inside the goal, ask the
 user. Put all open questions in one short message. Give your recommendation for
