@@ -596,6 +596,8 @@ you send it to the correct agent.
 You are responsible for this restart. Supervisors and the assistant live a long
 time, and their context grows. Their restart needs more care than the stop of
 an orchestrator, because no board holds their state. The handoff holds it.
+You do not need the user's approval. If a check fails, do not stop the agent,
+and tell the user.
 
 `claude --resume` keeps the old context. So this restart starts a new session.
 
@@ -643,14 +645,6 @@ Do all of these steps in order. If a step fails, do not stop the agent.
    gives the number of open items. This number is the agent's own claim, not a
    separate check. Tell the user to read the open items in the assistant's
    terminal.
-6. Show the user the agent name, the signs, the handoff path, and the number of
-   open items. For a supervisor, also show each standing rule without changes.
-   Say that a restarted supervisor gets a new address, so its live
-   orchestrators fail the `.parent` check under "Valid relay", and the
-   supervisor then asks the user directly. Ask the user to approve the
-   restart. A relayed approval does not count.
-
-If the user refuses, tell the agent that no restart comes.
 
 ### Restart
 
@@ -688,9 +682,12 @@ If the user refuses, tell the agent that no restart comes.
 2. For a supervisor, check that its roster shows each live orchestrator.
 3. If a check fails, stop the new agent. Resume the old session with
    `claude --resume <session-id>`, and tell the user.
-4. Tell the user in one line: the name, the old session ID, and the handoff
-   path. Keep the old session and the handoff file until the user approves
-   their removal.
+4. Report to the user after the restart: the name, the signs, the old session
+   ID, the handoff path, and the number of open items. For a supervisor, also
+   show each standing rule without changes. Say that a restarted supervisor has
+   a new address, so its live orchestrators fail the `.parent` check under
+   "Valid relay", and the supervisor then asks the user directly. Keep the old
+   session and the handoff file until the user approves their removal.
 
 ## Stop an agent
 

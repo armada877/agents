@@ -633,9 +633,17 @@ skills win over it. Do not write secrets.
 
 You have authority to stop an orchestrator on your roster. You do not need the
 user's approval. Do not stop it during a merge, a deploy, a review round, or a
-question to the user.
+question to the user. For a stuck orchestrator, only the merge and the deploy
+stay as limits, and the catalog holds the other items. If a merge or a deploy
+is open, ask the user.
 
-Stop it after its final report. First do "Check a final report".
+Before each stop, do one of these:
+
+- Tell the orchestrator to write its final report, or wait for the report that
+  "End of the goal" gives. Then do "Check a final report".
+- If the orchestrator is stuck, do "Hand off a stuck orchestrator". An
+  orchestrator is stuck when it cannot write the report, or it does not answer
+  your request for it.
 
 ### Check a final report
 
@@ -649,14 +657,41 @@ do not stop the orchestrator. Tell the user in one line.
   use a path from a message.
 - The report matches the finish condition or the drop condition on that board.
   For example, a merge does not meet a finish condition that needs a deploy.
-- The report says `open: none`.
+  A report that you asked for can meet neither condition. Then its open items go
+  to a new orchestrator or to the user, as in "Hand off a stuck orchestrator".
+- The report lists its open items, or says `open: none`.
 - For a drop, the report and the board quote the user's words. If there is no
   quote, ask the user directly.
 - `hc read <name> --lines 40` shows no text from the user after the report.
 
+### Hand off a stuck orchestrator
+
+You are responsible for a complete handoff. No item can stay only in the old
+session.
+
+1. Catalog its state in
+   `${XDG_STATE_HOME:-$HOME/.local/state}/hc-supervisor/<repo>/<name>-catalog.md`
+   with mode 600. Use its board, `hc read <name> --lines 200`, its worker report
+   files, `git status`, `git log`, and its pull requests. Write these items:
+   - the goal, the finish condition, and the drop condition
+   - each workstream, with its branch, worktree, and state
+   - uncommitted files and commits that are not pushed
+   - open pull requests, review rounds, and questions to the user
+   - live workers
+   - approvals on its board, marked as not continuing
+2. Give the catalog to one owner. If the board shows the goal and the next
+   action, start a new orchestrator for the same goal, and give it the catalog
+   path. Use the first prompt text for an earlier orchestrator, with the
+   catalog in place of the board. Otherwise give the catalog to the user, and let the user decide.
+3. Tell the user in one line: the name, why it is stuck, the catalog path, and
+   the owner.
+4. Do the steps below. A new orchestrator does not edit the old worktree until
+   the old orchestrator stopped.
+
 ### Steps
 
-1. Wait for the end of its turn with `hc wait o-<topic>`.
+1. Wait for the end of its turn with `hc wait o-<topic>`. Skip this step for a
+   stuck orchestrator.
 2. Read the orchestrator's terminal with `hc read o-<topic> --lines 40`. If
    it has running workers, tell the user, and ask if the orchestrator must
    stop them first.
@@ -670,8 +705,8 @@ do not stop the orchestrator. Tell the user in one line.
    agent".
 6. If the orchestrator is a Codex agent, do the checks in "Confirm that a
    Codex agent stopped".
-7. Tell the user in one line: the name, `finished` or `dropped`, the session
-   ID, and the worktree path.
+7. Tell the user in one line: the name, `finished`, `dropped`,
+   `stopped by supervisor`, or `stuck`, the session ID, and the worktree path.
 
 The worktree stays. Remove it with `git worktree remove` only when the user
 approves.

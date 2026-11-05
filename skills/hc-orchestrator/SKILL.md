@@ -693,6 +693,10 @@ Do these steps when the board's finish condition or drop condition is met:
    will stop you. If your terminal stays live, the user can ask your supervisor.
 7. End your turn. Your session stays on disk and can resume.
 
+If your supervisor asks for your final report before the goal ends, send it
+now. Write `stopped by supervisor` in place of `finished` or `dropped`, and
+list each open item after `open:`. Write the same items on the board.
+
 ## Recover after a restart
 
 1. Read the board.
