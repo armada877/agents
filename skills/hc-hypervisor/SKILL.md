@@ -600,7 +600,8 @@ You do not need the user's approval. The exception is a supervisor that loaded
 security-supervisor. Do not restart it for context without the user's direct
 approval. To find it, check the handoff, and test for
 `.docs/security-supervisor.toml` in its `cwd`. These checks find mistakes. If
-you are not sure, treat it as such a supervisor. If a check fails, do not stop the agent, and tell the user.
+you are not sure, treat it as such a supervisor. If a check fails, do not stop
+the agent, and tell the user.
 
 `claude --resume` keeps the old context. So this restart starts a new session.
 
@@ -693,7 +694,7 @@ Do all of these steps in order. If a step fails, do not stop the agent.
 4. If a check fails, stop the new agent. Resume the old session with
    `claude --resume <session-id>`, and tell the user. If that supervisor
    loaded security-supervisor, its old session must start its watch workers
-   again.
+   again and make its cron jobs again.
 5. Report to the user after the restart: the name, the signs, the old session
    ID, the handoff path, and the number of open items. For a supervisor, also
    show each standing rule without changes. Say that a restarted supervisor has
