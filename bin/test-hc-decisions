@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from io import StringIO
+import json
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+
+script = Path(__file__).with_name("hc-decisions")
+loader = SourceFileLoader("hc_decisions", str(script))
+module = module_from_spec(spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+
+
+def completed(payload=None, returncode=0, stderr=""):
+    fields = {
+        "returncode": returncode,
+        "stdout": json.dumps(payload),
+        "stderr": stderr,
+    }
+    return type("Completed", (), fields)()
+
+
+def fake_hc(listing, terminals):
+    def run(command, **_):
+        if command[:2] == ["hc", "ls"]:
+            return listing
+        name = command[2]
+        if name not in terminals:
+            return completed(returncode=1)
+        return completed({"name": name, "labels": terminals[name]})
+
+    return run
+
+
+def run_main(listing, terminals):
+    out, err = StringIO(), StringIO()
+    runner = fake_hc(listing, terminals)
+    with (
+        patch.object(module.subprocess, "run", side_effect=runner),
+        patch.object(sys, "stdout", out),
+        patch.object(sys, "stderr", err),
+    ):
+        code = module.main()
+    return code, out.getvalue(), err.getvalue()
+
+
+def listing_of(*names):
+    return completed({"terminals": [{"name": name} for name in names]})
+
+
+class DecisionTests(unittest.TestCase):
+    def test_no_decisions(self):
+        terminals = {"a": {}, "b": {"decision": ""}}
+        code, out, _ = run_main(listing_of("a", "b"), terminals)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "no open decisions\n")
+
+    def test_two_sorted_decisions(self):
+        terminals = {
+            "z-one": {"decision": "merge?", "decision-kind": "approval"},
+            "a-two": {"decision": "which order?", "decision-kind": "decision"},
+        }
+        code, out, _ = run_main(listing_of("z-one", "a-two"), terminals)
+        self.assertEqual(code, 0)
+        expected = "a-two\tdecision\twhich order?\nz-one\tapproval\tmerge?\n"
+        self.assertEqual(out, expected)
+
+    def test_missing_kind_is_decision(self):
+        terminals = {"a": {"decision": "pick one"}}
+        code, out, _ = run_main(listing_of("a"), terminals)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "a\tdecision\tpick one\n")
+
+    def test_unreadable_terminal_is_skipped(self):
+        terminals = {"a": {"decision": "pick one"}}
+        code, out, _ = run_main(listing_of("gone", "a"), terminals)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "a\tdecision\tpick one\n")
+
+    def test_ls_failure(self):
+        failed = completed(returncode=1, stderr="no server")
+        code, out, err = run_main(failed, {})
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("no server", err)
+
+
+if __name__ == "__main__":
+    unittest.main()
