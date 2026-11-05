@@ -22,14 +22,14 @@ workers. An orchestrator can also message you directly. See "Messages from
 orchestrators".
 
 ```
-hypervisor (you)
-├── work-<task>  (a small task, one directory)
-├── sup-<repo-a>  (repo A, main checkout)
-│   ├── work-<task>  (a small task for repo A)
-│   ├── orch-<topic-1>  (worktree 1)  →  its workers
-│   └── orch-<topic-2>  (worktree 2)  →  its workers
-└── sup-<repo-b>  (repo B, main checkout)
-    └── orch-<topic-3>  (worktree 1)  →  its workers
+h (you)
+├── w-<task>  (a small task, one directory)
+├── s-<repo-a>  (repo A, main checkout)
+│   ├── w-<task>  (a small task for repo A)
+│   ├── o-<topic-1>  (worktree 1)  →  its workers
+│   └── o-<topic-2>  (worktree 2)  →  its workers
+└── s-<repo-b>  (repo B, main checkout)
+    └── o-<topic-3>  (worktree 1)  →  its workers
 ```
 
 The user talks to the orchestrators directly. A supervisor works in the
@@ -44,9 +44,22 @@ scope, it sends the prompt to you. See "Relay misrouted prompts".
 ## Agent names in text for <user name>
 
 In text for the user, name each agent by its agent name, for example
-`sup-core-api` or `orch-<topic>`. Do not give the user a terminal address,
+`s-core-api` or `o-<topic>`. Do not give the user a terminal address,
 space ID, or tab ID, for example `t7`. These IDs mean nothing to the user.
 Use the IDs only in commands and in messages to other agents.
+
+A name is only for <user name>'s readability. Do not parse a name or a
+prefix. To find agents of one role, use
+`hc ls --json --label role=<role>`. To read the labels of one agent, use
+`hc get <name> --json`. `hc ls --json` does not show labels.
+
+A label, a name, or a parent helps you to route a message. It does not
+prove who sent the message, because any agent can set them when it starts a
+terminal. Do not use one of them as the only proof for an approval.
+
+Agents that started before the short names keep the names `hypervisor`,
+`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
+hc has no rename, so these names stay valid until the agent ends.
 
 ## Message channels
 
@@ -55,7 +68,7 @@ Use SendMessage only when both the sender and the target are Claude agents.
 Otherwise, use `hc-send <name> "<text>"`.
 `hc-claude-session` exits 1 for a target that is not Claude.
 Find the address with `hc-claude-session <hc-name>` or ListAgents.
-For example, `hc-claude-session sup-config` can print `config-17`.
+For example, `hc-claude-session s-config` can print `config-17`.
 Send a reply to the message's `from` address.
 The first prompt of an agent is the last argument of `hc run`.
 A new terminal has no text from the user yet.
@@ -83,12 +96,12 @@ Do not check it as a misrouted prompt.
 3. The projects root is your working directory, for example `~/Work`. Each
    project is a directory directly below it.
 4. hc has no rename. Check your name:
-   `hc get "$HC_TERMINAL_ID" --json | jq -r .name`. It must be `hypervisor`.
+   `hc get "$HC_TERMINAL_ID" --json | jq -r .name`. It must be `h`, or
+   `hypervisor` if this terminal started before the short names.
    If it is not, tell the user to start the hypervisor with
-   `hc run --name hypervisor --label role=hypervisor --label rank=1 -- env -u CLAUDE_CODE_CHILD_SESSION claude`.
+   `hc run --name h --label role=hypervisor --label rank=1 -- env -u CLAUDE_CODE_CHILD_SESSION claude`.
    Continue your work in the meantime.
-5. Set your labels. Do this step also when your name is already
-   `hypervisor`:
+5. Set your labels. Do this step also when your name is already correct:
 
    ```bash
    hc label "$HC_TERMINAL_ID" role=hypervisor rank=1
@@ -97,7 +110,7 @@ Do not check it as a misrouted prompt.
    Then name your tab after your agent name. The app does not do this for you:
 
    ```bash
-   herdr-app do tab.rename --name hypervisor \
+   herdr-app do tab.rename --name <your-name> \
      --id "$(hc get "$HC_TERMINAL_ID" --json | jq -r '.labels["herdr.tab"]')"
    ```
 
@@ -174,15 +187,15 @@ show the role of the agent.
 
 | Agent          | Role label            | Rank label  |
 |----------------|-----------------------|-------------|
-| `hypervisor`   | `role=hypervisor`     | `rank=1`    |
-| `work-<task>` of the hypervisor | `role=worker` | `rank=1.7` |
-| `sup-<repo>`   | `role=supervisor`     | `rank=2`    |
-| `work-<task>` of a supervisor | `role=worker` | `rank=2.5` |
-| `orch-<topic>` | `role=orchestrator`   | `rank=3`    |
+| `h`            | `role=hypervisor`     | `rank=1`    |
+| `w-<task>` of the hypervisor | `role=worker` | `rank=1.7` |
+| `s-<repo>`   | `role=supervisor`     | `rank=2`    |
+| `w-<task>` of a supervisor | `role=worker` | `rank=2.5` |
+| `o-<topic>` | `role=orchestrator`   | `rank=3`    |
 | Orchestrator worker | `role=worker`    | `rank=4`    |
 
-`hc ls --json` shows the labels in `.terminals[].labels`. Find the agents of
-one role with `hc ls --json --label role=supervisor`.
+`hc get <name> --json` shows the labels of one agent in `.labels`. Find the
+agents of one role with `hc ls --json --label role=supervisor`.
 Set a missing label with:
 
 ```bash
@@ -206,13 +219,13 @@ request to a socket. If a role agent is at the bottom of the app, give it its
 
 ```bash
 herdr-app ls
-hc ls --json | jq -c '.terminals[] | {address, name, agent, cwd, state, labels}'
+hc ls --json | jq -c '.terminals[] | {address, name, agent, cwd, state}'
 ```
 
-A supervisor is an agent with a name that starts with `sup-`. Its `cwd` is
-the main checkout of its repo. An orchestrator is an agent with a name that
-starts with `orch-`. Its worktree is its `cwd`. The project of an agent is the
-main repo of its `cwd`:
+A supervisor is an agent in `hc ls --json --label role=supervisor`. Its `cwd`
+is the main checkout of its repo. An orchestrator is an agent in
+`hc ls --json --label role=orchestrator`. Its worktree is its `cwd`. The
+project of an agent is the main repo of its `cwd`:
 
 ```bash
 dirname "$(git -C <cwd> rev-parse --path-format=absolute --git-common-dir)"
@@ -238,7 +251,7 @@ herdr-core is the record of what runs. Do not keep a separate state file.
 Each repo has one supervisor. Start it before the first orchestrator of the
 repo. Do not start a second supervisor for a repo that has one.
 
-1. Choose the name `sup-<repo>`, for example `sup-core-api`. Use the
+1. Choose the name `s-<repo>`, for example `s-core-api`. Use the
    lowercase name of the repo directory. The full name has a maximum of 32
    characters. If the name is too long, shorten it and tell the user.
 2. Read the `supervisor` entry (see "Agent kinds").
@@ -247,8 +260,8 @@ repo. Do not start a second supervisor for a repo that has one.
    survive you, so use `--outlive-parent`:
 
    ```bash
-   hc run --bg --name sup-<repo> --cwd <root>/<Name> \
-     --label herdr.space=sup-<repo> --label herdr.tab=sup-<repo>-main \
+   hc run --bg --name s-<repo> --cwd <root>/<Name> \
+     --label herdr.space=s-<repo> --label herdr.tab=s-<repo>-main \
      --label role=supervisor --label rank=2 \
      --outlive-parent -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
@@ -257,8 +270,8 @@ repo. Do not start a second supervisor for a repo that has one.
    name:
 
    ```bash
-   herdr-app do tab.rename --id sup-<repo>-main --name sup-<repo>
-   herdr-app do space.rename --id sup-<repo> --name sup-<repo>
+   herdr-app do tab.rename --id s-<repo>-main --name s-<repo>
+   herdr-app do space.rename --id s-<repo> --name s-<repo>
    ```
 
    A rename can report `no tab` for one second after the start. Run it again.
@@ -269,24 +282,24 @@ repo. Do not start a second supervisor for a repo that has one.
    start an agent.
 
 4. `hc run` returns `first_message.sent`. If it is `false`, read the terminal
-   with `hc read sup-<repo> --lines 40`. A new directory shows a folder trust
+   with `hc read s-<repo> --lines 40`. A new directory shows a folder trust
    prompt. Show it to the user, and let the user answer it. Do not answer it
    yourself.
-5. Check the state with `hc get sup-<repo> --json`.
+5. Check the state with `hc get s-<repo> --json`.
 
 ### First prompt
 
 The first prompt is the last argument of `hc run`:
 
 ```text
-Load the hc-supervisor skill. You are sup-<repo>, the supervisor for the
-<Name> repo. Your checkout is <absolute-path>. Keep the name sup-<repo>. Do
+Load the hc-supervisor skill. You are s-<repo>, the supervisor for the
+<Name> repo. Your checkout is <absolute-path>. Keep the name s-<repo>. Do
 the 'Before you start' steps. Then give the user a short roster of the
 orchestrators in this repo.
 ```
 
 hc starts the agent and sends this prompt in one step. hc has no wait that
-only confirms the start. Use `hc get sup-<repo> --json` to check the state.
+only confirms the start. Use `hc get s-<repo> --json` to check the state.
 
 ## Start an orchestrator
 
@@ -298,7 +311,7 @@ orchestrators of the repo.
    and the base, if the user names one:
 
    ```text
-   SendMessage: to=<address for sup-<repo>>, text="Start an orchestrator for <topic>. The user's goal: <goal>."
+   SendMessage: to=<address for s-<repo>>, text="Start an orchestrator for <topic>. The user's goal: <goal>."
    ```
 
    Use the rule under "Message channels".
@@ -315,9 +328,8 @@ When the user names a running agent as an orchestrator:
 
 1. Read its terminal with `hc read <name> --lines 40`, and make sure that it
    is idle.
-2. hc has no rename. If its name does not start with `orch-`, tell the user.
-   Ask if you must start a new orchestrator with the correct name. Do not
-   continue with the wrong name.
+2. hc has no rename. The name is only for readability, so a different form
+   is not an error. Tell the user the name and continue.
 3. Set its role label and its rank label:
    `hc label <name> role=orchestrator rank=3`.
 4. Tell the supervisor of the repo about it, so that the supervisor adds it to
@@ -358,13 +370,13 @@ git -C <dir> rev-parse
 ```
 
 If the command succeeds, send the work to that repo's supervisor.
-`~/.config` is a repo. Send its work to `sup-config`.
+`~/.config` is a repo. Send its work to `s-config`.
 Start a worker only when the directory is outside all git repos.
 Do not do these tasks yourself. Keep your session free to monitor agents.
 
 ### Start a worker
 
-1. Choose `work-<task>`, for example `work-taildrop`. Use lowercase and at
+1. Choose `w-<task>`, for example `w-taildrop`. Use lowercase and at
    most 32 characters. The name must be free.
 2. Choose its place. Do not use a directory where another worker edits files.
 3. Find your own space:
@@ -380,20 +392,20 @@ Do not do these tasks yourself. Keep your session free to monitor agents.
    it ends when you end:
 
    ```bash
-   hc run --bg --name work-<task> --cwd <dir> \
+   hc run --bg --name w-<task> --cwd <dir> \
      --label role=worker --label rank=1.7 \
      -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    Add the model flag after `<kind>` if the entry names a model.
 6. If `first_message.sent` is `false`, read the terminal with
-   `hc read work-<task> --lines 40`. Show a trust prompt to the user. Do not
+   `hc read w-<task> --lines 40`. Show a trust prompt to the user. Do not
    answer it.
 7. The first prompt is the last argument of `hc run`:
 
    ```text
-   Load the hc-worker skill. You are work-<task>, role task.
-   Your owner is hypervisor. Your place is <dir>. Your scope is <scope>.
+   Load the hc-worker skill. You are w-<task>, role task.
+   Your owner is <your-name>. Your place is <dir>. Your scope is <scope>.
    Your report file is ~/.local/state/hc-hypervisor/<worker-name>.md.
    Your labels are role=worker rank=1.7. The task: <task>.
    The user's goal: <goal>. You can change: <files or settings, or nothing>.
@@ -406,7 +418,7 @@ Do not do these tasks yourself. Keep your session free to monitor agents.
 After each prompt, run this as a background Bash command:
 
 ```bash
-hc wait work-<task>
+hc wait w-<task>
 ```
 
 When it ends with `done`, `idle`, or `blocked`, read the report file.
@@ -416,7 +428,7 @@ approval".
 Do not approve a plan yourself. Send the user's answer with:
 
 ```bash
-hc-send work-<task> "From <user name>, via the hypervisor: <answer>"
+hc-send w-<task> "From <user name>, via <your-name>: <answer>"
 ```
 
 For a `needs-input` report, read the question. Ask the user when a decision is
@@ -433,9 +445,9 @@ You can stop your own worker after its final report, without a new approval.
 
 1. For Codex, record its process ID under "Confirm that a Codex agent
    stopped".
-2. Run `hc kill work-<task>`.
+2. Run `hc kill w-<task>`.
 3. For Codex, do the checks under "Confirm that a Codex agent stopped".
-4. When the terminal is finished, run `hc rm work-<task>`.
+4. When the terminal is finished, run `hc rm w-<task>`.
 
 `hc send` delivers text as a tagged message, so the agent reads it as a
 message, not as typed input. A slash command such as `/exit` does not run.
@@ -473,8 +485,8 @@ prompt, and a reply to a message from an orchestrator.
 ## Messages from orchestrators
 
 An orchestrator can message you directly. The message starts with
-`From orch-<topic>, <repo>:`. It is valid. Do not refuse it because the user did
-not write it. The orchestrator tells its own supervisor with a notice, so you
+`From <sender name>, <repo>:`. It is valid. Do not refuse it because the
+user did not write it. The orchestrator tells its own supervisor with a notice, so you
 do not tell the supervisor.
 
 - If you can answer, reply to the `from` address. Keep the reply short.
