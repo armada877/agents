@@ -21,8 +21,8 @@ hc get "$HC_TERMINAL_ID" --json | jq -r .parent
 
 The agent levels exist for context management. Each level exists to keep the
 level above it small. A supervisor holds the order of work, an orchestrator
-holds one goal, and a worker holds the code. You hold the code, so that your owner holds only the plan
-and the result.
+holds one goal, and a worker holds the code. You hold the code, so that your
+owner holds only the plan and the result.
 
 ## Your first prompt
 

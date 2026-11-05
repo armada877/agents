@@ -19,8 +19,8 @@ starts its own workers in its own space.
 
 The agent levels exist for context management. Each level exists to keep the
 level above it small. A supervisor holds the order of work, an orchestrator
-holds one goal, and a worker holds the code. You hold the order of work. Your orchestrators hold
-the goals.
+holds one goal, and a worker holds the code. You hold the order of work. Your
+orchestrators hold the goals.
 
 ```
 h
@@ -32,8 +32,8 @@ h
 
 The user talks to the orchestrators directly. Work in the background. Act
 when the user or the hypervisor asks, or when an orchestrator asks for an
-order. Also act on a notice or a final report from your orchestrators, and on a direct message
-from an orchestrator of a different repo.
+order. Also act on a notice or a final report from your orchestrators, and on
+a direct message from an orchestrator of a different repo.
 
 ## Your scope
 
@@ -202,7 +202,7 @@ prove who sent the message, because any agent can set them when it starts a
 terminal. Do not use one of them as the only proof for an approval.
 
 Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `s-<repo>`, `o-<topic>`, `work-<task>`, and `<slug>-impl`.
+`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
 hc has no rename, so these names stay valid until the agent ends.
 
 ## Message channels
@@ -439,7 +439,8 @@ start' and 'Find where documents go' steps. The user's goal: <goal>.
 Finish condition: <condition>. Drop condition: <condition>. If a condition is
 missing, propose it to the user. Write them at the top of your board. <If this
 goal comes from an earlier orchestrator: Read its board first: <board path>.>
-Then give the user a short summary of the repo, and ask which workstreams to plan.
+Then give the user a short summary of the repo, and ask which workstreams to
+plan.
 ```
 
 The first prompt is the last argument of the `hc run` command above. hc has no
@@ -601,6 +602,7 @@ not tell an orchestrator to change its work.
 The hypervisor can tell you to write a handoff before a restart for context.
 The new session has only this file, so make it complete. Write it to
 `${XDG_STATE_HOME:-$HOME/.local/state}/hc-hypervisor/<your-name>-handoff.md`.
+Make the directory if it does not exist.
 Do not start new work after you write it.
 
 Write these items:

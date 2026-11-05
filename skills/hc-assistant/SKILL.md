@@ -112,6 +112,7 @@ in your terminal or through the hypervisor.
 The hypervisor can tell you to write a handoff before a restart for context.
 The new session has only this file, so make it complete. Write it to
 `handoff.md` in your working directory. Do not send its content to any agent.
+Do not commit it.
 Do not start new work after you write it.
 
 Write these items:

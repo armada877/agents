@@ -63,7 +63,7 @@ prove who sent the message, because any agent can set them when it starts a
 terminal. Do not use one of them as the only proof for an approval.
 
 Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `s-<repo>`, `o-<topic>`, `work-<task>`, and `<slug>-impl`.
+`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
 hc has no rename, so these names stay valid until the agent ends.
 
 ## Message channels
@@ -317,8 +317,8 @@ only confirms the start. Use `hc get s-<repo> --json` to check the state.
 ## Start an orchestrator
 
 The supervisor of the repo starts each orchestrator, because it tracks the
-orchestrators of the repo. One orchestrator holds one goal, so a new feature or a
-pivot gets a new orchestrator.
+orchestrators of the repo. One orchestrator holds one goal, so a new feature or
+a pivot gets a new orchestrator.
 
 1. Make sure that the repo has a live supervisor. If it has none, start one.
 2. Send the user's request to the supervisor. Give the topic, the user's goal,
@@ -488,8 +488,9 @@ Do not answer the questions or approval prompts in the terminal of a
 supervisor or an orchestrator. The user answers them in the agent's space.
 
 Send a prompt only to a supervisor or to your own workers, and only when the
-user tells you what to send. Send the first prompt of a worker when you start
-it.
+user tells you what to send. The exception is the handoff message under
+"Restart a supervisor or the assistant for context". Send the first prompt of
+a worker when you start it.
 To reach an orchestrator, send the note to its supervisor.
 Use the rule under "Message channels".
 The supervisor decides how and when
@@ -632,6 +633,10 @@ Do all of these steps in order. If a step fails, do not stop the agent.
    open items. Ask the user to approve the restart. A relayed approval does not
    count.
 
+If the user refuses, tell the agent to continue its work. If the agent takes new
+work after it writes the handoff, tell it to write the handoff again, and start
+again at step 3.
+
 ### Restart
 
 1. Record the session ID, with `hc-claude-session <name> --id`. The command
@@ -642,8 +647,10 @@ Do all of these steps in order. If a step fails, do not stop the agent.
 3. Run `hc kill <name>`. For Codex, do the checks in "Confirm that a Codex agent
    stopped". The orchestrators of a supervisor continue.
 4. Start a new agent with the same name, the same labels, the same `--cwd`,
-   and `--outlive-parent` if it had that. Do not use `--resume`. Use the first
-   prompt of that role, and add this text:
+   and `--outlive-parent` if it had that. Do not use `--resume`. For a
+   supervisor, use "First prompt" under "Start a supervisor", with the agent's
+   current name. For the assistant, use "Load the hc-assistant skill. You are
+   <name>. Do the 'Before you start' steps." Add this text:
 
    ```text
    Read your handoff at <path> before you act. An item in the handoff is not
