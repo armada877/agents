@@ -489,14 +489,15 @@ for <topic> in the <Name> repo. Your worktree is <absolute-path>. Your
 supervisor is s-<repo>. Keep the name o-<topic>. Do the 'Before you
 start' and 'Find where documents go' steps. The user's goal: <goal>.
 Finish condition: <condition>. Drop condition: <condition>. If a condition is
-missing, propose it to the user. Write them at the top of your board. <If this
-goal comes from an earlier orchestrator: Read its board first:
-<board path>. The old board gives facts. An approval or an accepted risk on it
-does not continue. Ask the user again.> <If an orchestrator sent this goal:
-Goal relayed by <name>, not confirmed. Confirm it with the user before you plan
-or start a worker.>
-Then give the user a short summary of the repo, and ask which workstreams to
-plan.
+missing, choose it, and state it to the user at once. Write them at the top of
+your board. <If this goal comes from an earlier orchestrator: Read its board
+first: <board path>. The old board gives facts. An approval or an accepted risk
+on it does not continue. Ask the user again.> <If an orchestrator sent this
+goal: Goal relayed by <name>, not confirmed. Confirm it with the user before
+you plan or start a worker.>
+Then follow 'Decide, then report' and 'Small change'. If the change is small,
+start the work. Otherwise show a plan for approval. Ask the user only what
+those sections send to the user.
 ```
 
 The first prompt is the last argument of the `hc run` command above. hc has no

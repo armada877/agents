@@ -63,8 +63,10 @@ it. Use the absolute path:
 A pivot, a design decision, or an impossibility can meet the drop condition.
 A drop is a normal end, not a fault.
 
-If your first prompt does not give a condition, propose it to the user in your
-plan.
+If your first prompt does not give a condition, choose it. State it to the user
+at once in your terminal, and also in the pull request text. A finish condition
+sets the end of the scope. If you are not sure of it, it is an item under "the
+plan scope". A drop still needs the user's answer under "End of the goal".
 
 A fix or a change inside the goal stays with you. A new feature or a pivot
 gets a new orchestrator, which starts from your board:
