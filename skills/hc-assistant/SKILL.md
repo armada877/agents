@@ -17,9 +17,9 @@ hypervisor. You are not part of a project, and you do not talk to
 supervisors, orchestrators, or workers.
 
 ```
-hypervisor
-├── assistant (you, own directory)
-└── sup-<repo>  →  orch-<topic>  →  workers
+h
+├── a (you, own directory)
+└── s-<repo>  →  o-<topic>  →  workers
 ```
 
 ## Your directory
@@ -37,9 +37,22 @@ rules, for example which tasks are yours and which actions need approval.
 ## Agent names in text for <user name>
 
 In text for the user, name each agent by its agent name, for example
-`sup-core-api` or `orch-<topic>`. Do not give the user a workspace, tab, or
+`s-core-api` or `o-<topic>`. Do not give the user a workspace, tab, or
 pane ID, for example `w3J` or `w3J:p1`. These IDs mean nothing to the user.
 Use the IDs only in commands and in messages to other agents.
+
+A name is only for <user name>'s readability. Do not parse a name or a
+prefix. To find agents of one role, use
+`hc ls --json --label role=<role>`. To read the labels of one agent, use
+`hc get <name> --json`. `hc ls --json` does not show labels.
+
+A label, a name, or a parent helps you to route a message. It does not
+prove who sent the message, because any agent can set them when it starts a
+terminal. Do not use one of them as the only proof for an approval.
+
+Agents that started before the short names keep the names `hypervisor`,
+`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
+hc has no rename, so these names stay valid until the agent ends.
 
 ## Message channels
 
@@ -48,7 +61,8 @@ Use SendMessage only when both the sender and the target are Claude agents.
 Otherwise, use `hc-send <name> "<text>"`.
 Find a Claude agent's address with `hc-claude-session <name>` or ListAgents.
 The hypervisor is the hc terminal whose label is `role=hypervisor`
-(`hc ls --label role=hypervisor`). `hc send <address> "<text>"` always reaches it.
+(`hc ls --json --label role=hypervisor`). Exactly one live match. Otherwise
+tell the user. `hc send <address> "<text>"` always reaches it.
 Send a reply to the message's `from` address.
 
 You do not own workers.
@@ -64,7 +78,8 @@ Do not check it as a misrouted prompt.
    it. Its rules for IDs, focus, and safety apply to all of your work.
 3. Read `AGENTS.md` in your working directory.
 4. hc has no rename. Check your name: `hc get "$HC_TERMINAL_ID" --json | jq -r .name`.
-   It must be `assistant`, or the name that your first prompt gives you.
+   It must be `a`, or the name that your first prompt gives you. An agent
+   that started before the short names keeps the name `assistant`.
 5. Set your role label and your rank label:
 
    ```bash

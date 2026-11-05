@@ -18,7 +18,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | herdr | hc |
 | --- | --- |
 | agent name | `--name` on `hc run`. 1-32 of `a-z 0-9 - _`, unique among live terminals. hc has **no rename**: set the name at start. |
-| `herdr agent list` | `hc ls --json` → `.terminals[] \| {address, name, agent, cwd, state, labels}` |
+| `herdr agent list` | `hc ls --json` → `.terminals[] \| {address, name, agent, cwd, state}`; labels: `hc get <n> --json` → `.labels` |
 | `herdr agent get <n>` | `hc get <n> --json` → `.status.state` is `idle`, `working`, `done`, `blocked`, `error`, or null (no report yet). `.state` is `live` or `finished`. `.foreground.pid` is the program's pid. |
 | `herdr agent read <n> --source recent-unwrapped --lines N` | `hc read <n> --lines N` (plain text) |
 | `herdr agent prompt <n> "<text>"` | `hc send <n> "<text>"`; add `--wait` to wait for that turn |
@@ -41,7 +41,7 @@ not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 | tab | app **tab**: label `herdr.tab=<id>`. A new id becomes a new tab in the space. Name each tab after its agent: `herdr-app do tab.rename --id <tab-id> --name <agent-name>` after `hc run`. The app does not do it. |
 | `herdr workspace create --cwd D --label L` | No separate step. Start the agent with `--cwd D --label herdr.space=<L> --label herdr.tab=<L>-main`. Optional name: `herdr-app do space.rename --id <L> --name <L>`. |
 | `herdr tab create` (worker tab) | Workers are pane-less: start them with no `herdr.space` or `herdr.tab` label. The app shows them under their parent's tab. |
-| orchestrator space | An orchestrator has its own space: `--label herdr.space=<orch-name> --label herdr.tab=<orch-name>-main`. The app reads these labels only when it first sees a terminal; changing them later does not move a live tab. |
+| orchestrator space | An orchestrator has its own space: `--label herdr.space=<orchestrator-name> --label herdr.tab=<orchestrator-name>-main`. The app reads these labels only when it first sees a terminal; changing them later does not move a live tab. |
 | `herdr tab close` | `hc kill <n>` ends the program; the app closes its pane. `hc rm <n>` removes a finished terminal. |
 | `herdr worktree create` | `git -C <repo> worktree add <path> -b <branch> origin/<base>`; path under `~/.herdr/worktrees/<repo>/` |
 | `herdr workspace list` | `herdr-app ls` |
