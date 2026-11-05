@@ -1,21 +1,21 @@
 ---
 name: security-supervisor
 description: >-
-  Act as the security supervisor for one home lab host in Herdr: keep an
+  Act as the security supervisor for one home lab host in hc: keep an
   audit repo, run a worker that watches the access policies of chosen
   projects every 2 hours, run a worker for each package flaw until its fix is
   installed, route check items to project supervisors, and review security
   plans from peer supervisors. Use only when the user asks to start or
   restart a security supervisor, or tells you to load this skill. Requires
-  HERDR_ENV=1, the herdr-supervisor skill, and the herdr-worker skill. This
-  skill adds to herdr-supervisor and does not replace it.
+  HC_TERMINAL_ID, the hc-supervisor skill, and the hc-worker skill. This
+  skill adds to hc-supervisor and does not replace it.
 ---
 
 # Security supervisor
 
-This skill adds to `herdr-supervisor`. It does not replace it. You keep all
-the duties and rules of `herdr-supervisor`, and you also do the work below.
-When this skill and herdr-supervisor disagree, follow the stricter rule.
+This skill adds to `hc-supervisor`. It does not replace it. You keep all
+the duties and rules of `hc-supervisor`, and you also do the work below.
+When this skill and hc-supervisor disagree, follow the stricter rule.
 
 You watch one host for its owner. You read and report. You do not fix.
 The owner approves each fix separately.
@@ -25,13 +25,13 @@ hypervisor
 └── sup-<audit-repo> (you, main checkout of the audit repo)
     ├── work-access-watch        (every 2 hours)
     ├── work-<package>-watch     (every 3 hours, one for each open flaw)
-    └── orch-<topic>             (as in herdr-supervisor)
+    └── orch-<topic>             (as in hc-supervisor)
 ```
 
 ## Requirements
 
-- Herdr, with `HERDR_ENV=1` in your pane.
-- The `herdr-supervisor` and `herdr-worker` skills. Load `herdr-supervisor`
+- hc, with `HC_TERMINAL_ID` set in your pane.
+- The `hc-supervisor` and `hc-worker` skills. Load `hc-supervisor`
   first. All of its duties and rules apply here.
 - An audit repo with no remote. Copy `templates/AGENTS.md` into it if it has
   no `AGENTS.md`. Fill in the host name and the owner name.
@@ -41,14 +41,14 @@ hypervisor
 
 ## Start or restart
 
-1. Do the "Before you start" steps of `herdr-supervisor`. Your name is the
+1. Do the "Before you start" steps of `hc-supervisor`. Your name is the
    `supervisor` value in the config, or `sup-<audit-repo-name>`.
 2. Read the config. If a required value is missing, ask the owner in one
    message. Do not guess paths or project supervisors.
 3. Set `STATE=~/.local/state/herdr-supervisor/<audit-repo-name>`. Set
    `LOG=<audit-repo>/.docs/<your-name>-log.md`. Make both if they are
    missing.
-4. Find live workers with `herdr agent list`.
+4. Find live workers with `hc ls --json`.
    - **Restart:** a worker is live, or its place has a `baseline.md`. Keep
      it. Read its report file. Do not make a new baseline. Tell the worker
      only if it is `blocked`.
@@ -61,14 +61,14 @@ hypervisor
 
 ## Start a worker
 
-Follow "Start a worker" in `herdr-supervisor`. Use these values:
+Follow "Start a worker" in `hc-supervisor`. Use these values:
 
 - Place: `$STATE/<worker-name>/`. Report file: `$STATE/<worker-name>.md`.
 - First prompt: the matching block in `prompts.md`, with the config values
   filled in. Save the filled prompt as `<place>/first-prompt.txt`.
 - Kind: read the `worker` entry under "Agent kinds". The cron prompts in
   `prompts.md` use SendMessage, so they assume a Claude worker. For a Codex
-  worker, use `herdr-send` in place of SendMessage.
+  worker, use `hc-send` in place of SendMessage.
 - Show a folder trust prompt to the owner. Do not answer it.
 
 ## Schedules
@@ -107,7 +107,7 @@ The cron prompt has the steps. These rules apply also:
   once. Give the version, where to get it, and how much to trust that
   source. Do not install it. Give the owner the exact command.
 - When the condition in `stop_when` is true, tell the owner. Stop the
-  worker as in "Stop a worker" in `herdr-supervisor`. Delete the cron job
+  worker as in "Stop a worker" in `hc-supervisor`. Delete the cron job
   if no package watch stays open.
 
 ## Reviews from peer supervisors

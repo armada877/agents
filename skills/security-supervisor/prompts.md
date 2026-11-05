@@ -6,11 +6,11 @@ commas.
 ## Worker: work-access-watch
 
 ```text
-Load the herdr-worker skill. You are work-access-watch, role task. Your
+Load the hc-worker skill. You are work-access-watch, role task. Your
 owner is <supervisor>. Your place is <STATE>/work-access-watch. Your scope
 is <project paths>, with all their branches and worktrees (git worktree
 list), and the live access state of <host> for these projects. Your report
-file is <STATE>/work-access-watch.md. Your tokens are worker=worker
+file is <STATE>/work-access-watch.md. Your labels are role=worker
 rank=2.5.
 
 The task: watch the access policies of <project names> while their agents
@@ -70,10 +70,11 @@ report file.
 Use one worker for each entry in `[[package_watch]]`.
 
 ```text
-Load the herdr-worker skill. You are work-<package>-watch, role task. Your
+Load the hc-worker skill. You are work-<package>-watch, role task. Your
 owner is <supervisor>. Your place is <STATE>/work-<package>-watch. Your
 scope is <audit repo> (read only). Your report file is
-<STATE>/work-<package>-watch.md. Your tokens are worker=worker rank=2.5.
+<STATE>/work-<package>-watch.md. Your labels are role=worker
+rank=2.5.
 
 The task: watch for the fix for <flaw>. <host> runs <package>
 <installed version> from <installed_from>. Do one check now. <supervisor>
@@ -113,15 +114,15 @@ out. You can change: only files in your place and your report file.
 Scheduled access policy check for <project names> (every 2 hours).
 work-access-watch is a Claude worker. If its status is working (the
 baseline or a check is still running), skip this run and add one line to
-the log. Otherwise find its address with 'herdr-claude-session
+the log. Otherwise find its address with 'hc-claude-session
 work-access-watch'. Then SendMessage to it: "From <supervisor>: do the next
 access policy check, as in your first prompt. Update your report file."
 Then run a background Bash command that waits until the worker status is
-working, then runs 'herdr agent wait work-access-watch'. When it ends, read
-<STATE>/work-access-watch.md. If the status is check, do these three steps.
-Tell <owner> the new check items in a few lines. Send each item to the
-supervisor of that project (<project supervisors and their channels>). Log
-it in <LOG>. If the status is clear, add one line to the log and do not
+working, then runs 'hc wait work-access-watch --timeout 3600'. When it ends,
+read <STATE>/work-access-watch.md. If the status is check, do these three
+steps. Tell <owner> the new check items in a few lines. Send each item to
+the supervisor of that project (<project supervisors and their channels>).
+Log it in <LOG>. If the status is clear, add one line to the log and do not
 message <owner>. If work-access-watch is not live or is blocked, tell
 <owner>.
 ```
@@ -130,10 +131,10 @@ message <owner>. If work-access-watch is not live or is blocked, tell
 
 ```text
 Scheduled package fix check (every 3 hours), for <package watch workers>.
-For each worker, find its address with 'herdr-claude-session <worker>'.
+For each worker, find its address with 'hc-claude-session <worker>'.
 Then SendMessage to it: "From <supervisor>: do the next 3-hour check, as in
-your first prompt. Update your report file." Then run 'herdr agent wait
-<worker>' as a background Bash command. When it ends, read
+your first prompt. Update your report file." Then run 'hc wait <worker>
+--timeout 3600' as a background Bash command. When it ends, read
 <STATE>/<worker>.md. If the status is fix-available or fix-on-mirror, tell
 <owner> at once, with the version and where to get it. Log it in <LOG>.
 If the status is no-fix or installed with no change, add one line to the
@@ -147,8 +148,10 @@ blocked, tell <owner>.
 Use this background Bash command after each SendMessage to a worker:
 
 ```bash
-for i in $(seq 1 60); do s=$(herdr agent get <worker> | jq -r '.result.agent.agent_status'); [ "$s" = working ] && break; sleep 5; done; echo "start: $s"; herdr agent wait <worker> | grep -o '"agent_status":"[a-z]*"'
+for i in $(seq 1 60); do s=$(hc get <worker> --json | jq -r '.status.state'); [ "$s" = working ] && break; sleep 5; done; echo "start: $s"; hc wait <worker> --timeout 3600 --json | jq -c '{status, reason, ended}'
 ```
+
+If `reason` is `timeout` or `message`, and the worker has not ended, it still works. Run `hc wait` again.
 
 ## Log line
 
