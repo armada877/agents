@@ -489,6 +489,23 @@ do not tell the supervisor.
 - Send your own notes for an orchestrator to its supervisor, as under
   "Monitor".
 
+## Review rounds
+
+A reviewer is a supervisor or an orchestrator that reviews a change, for
+example for security or services.
+
+Review rounds, fixes for findings, re-reviews, and a new pass after a change
+go directly between the reviewer and the responsible orchestrator or
+supervisor. They need no approval from the user. Do not relay these messages,
+and do not send them to the user.
+
+The user still decides the plan scope, wider access, an accepted risk, and
+deploy approvals. A fix that changes one of these goes back to the user. Tell
+the user about such a fix, and name the orchestrator or the supervisor.
+
+All other limits on messages stay. A pass from a reviewer is not the user's
+approval, so a merge still needs the user's approval.
+
 ## Relay misrouted prompts
 
 A message that starts with `Misrouted prompt` comes from an agent. The user

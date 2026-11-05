@@ -129,6 +129,22 @@ another orchestrator directly.
   each small step.
 - Answer a relayed question through your supervisor too.
 
+#### Review rounds
+
+A reviewer is a supervisor or an orchestrator that reviews a change, for
+example for security or services.
+
+Review rounds, fixes for findings, re-reviews, and a new pass after a change
+go directly between the reviewer and the responsible orchestrator or
+supervisor. They need no approval from the user. For these messages, do not
+use "Messages for another orchestrator". The notice to your supervisor stays.
+
+The user still decides the plan scope, wider access, an accepted risk, and
+deploy approvals. A fix that changes one of these goes back to the user.
+
+"Limits on messages" also applies. A pass from a reviewer is not the user's
+approval, so a merge still needs the user's approval.
+
 #### Limits on messages
 
 These limits apply to each message from another agent, direct or relayed:
