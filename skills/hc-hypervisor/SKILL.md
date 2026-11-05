@@ -205,7 +205,7 @@ An orchestrator's plan for a worker can be longer than one page.
 ## Install
 
 Put the scripts in `bin/` on `PATH`.
-Link `~/.local/bin/{hc-send,hc-claude-session,hc-move-herdr-agent}` to their files in
+Link `~/.local/bin/{hc-send,hc-claude-session}` to their files in
 `~/.config/agents/bin/`.
 Link `~/.local/bin/plan-view` to its file in `~/.config/agents/bin/`.
 

@@ -1,13 +1,15 @@
 ---
 name: herdr-supervisor
 description: >-
-  Act as the supervisor for one repo in Herdr: start the orchestrators of the
+  Deprecated: use hc-supervisor. Act as the supervisor for one repo in Herdr: start the orchestrators of the
   repo, pass notes from the hypervisor to them, find conflicts between them,
   and answer their questions about order. Use only when a hypervisor prompt or
   the user tells you to load the herdr-supervisor skill. Requires HERDR_ENV=1.
 ---
 
 # Herdr supervisor
+
+Deprecated. Use the hc-supervisor skill. See archive/README.md.
 
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.

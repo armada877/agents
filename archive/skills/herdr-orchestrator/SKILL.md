@@ -1,7 +1,7 @@
 ---
 name: herdr-orchestrator
 description: >-
-  Act as the orchestrator for a project in Herdr: split the work into
+  Deprecated: use hc-orchestrator. Act as the orchestrator for a project in Herdr: split the work into
   workstreams, write a plan for each, start worker agents in Herdr worktrees,
   monitor them, review their results, and integrate the work. Use only when
   the user asks for an orchestrator, asks to manage several workstreams, or
@@ -9,6 +9,8 @@ description: >-
 ---
 
 # Herdr orchestrator
+
+Deprecated. Use the hc-orchestrator skill. See archive/README.md.
 
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.
