@@ -21,6 +21,11 @@ workers there. You do not plan project work. You talk only to your own
 workers. An orchestrator can also message you directly. See "Messages from
 orchestrators".
 
+The agent levels exist for context management. Each level exists to keep the
+level above it small. A supervisor holds the order of work, an orchestrator
+holds one goal, and a worker holds the code. You hold the repos and their
+supervisors.
+
 ```
 h (you)
 ├── w-<task>  (a small task, one directory)
@@ -36,7 +41,7 @@ The user talks to the orchestrators directly. A supervisor works in the
 background.
 
 Your scope is all projects below the projects root. Each other agent has a
-smaller scope: a supervisor has one repo, an orchestrator has one topic, and a
+smaller scope: a supervisor has one repo, an orchestrator has one goal, and a
 worker has one plan. A worker does one small task for you or for a
 supervisor. See "Workers". When an agent gets a prompt that is outside its
 scope, it sends the prompt to you. See "Relay misrouted prompts".
@@ -58,7 +63,7 @@ prove who sent the message, because any agent can set them when it starts a
 terminal. Do not use one of them as the only proof for an approval.
 
 Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
+`assistant`, `s-<repo>`, `o-<topic>`, `work-<task>`, and `<slug>-impl`.
 hc has no rename, so these names stay valid until the agent ends.
 
 ## Message channels
@@ -312,14 +317,15 @@ only confirms the start. Use `hc get s-<repo> --json` to check the state.
 ## Start an orchestrator
 
 The supervisor of the repo starts each orchestrator, because it tracks the
-orchestrators of the repo.
+orchestrators of the repo. One orchestrator holds one goal, so a new feature or a
+pivot gets a new orchestrator.
 
 1. Make sure that the repo has a live supervisor. If it has none, start one.
 2. Send the user's request to the supervisor. Give the topic, the user's goal,
    and the base, if the user names one:
 
    ```text
-   SendMessage: to=<address for s-<repo>>, text="Start an orchestrator for <topic>. The user's goal: <goal>."
+   SendMessage: to=<address for s-<repo>>, text="Start an orchestrator for <topic>. The user's goal: <goal>. Finish condition: <condition, if the user names one>. Drop condition: <condition, if the user names one>."
    ```
 
    Use the rule under "Message channels".
@@ -587,6 +593,9 @@ you send it to the correct agent.
 ## Stop an agent
 
 Do this only when the user asks.
+
+A supervisor can stop an orchestrator on its roster without the user's
+approval. See the hc-supervisor skill.
 
 1. Read the agent's terminal. If an orchestrator has running workers, tell the
    user, and ask if the orchestrator must stop them first.
