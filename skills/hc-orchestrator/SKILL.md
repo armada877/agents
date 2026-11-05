@@ -693,9 +693,12 @@ Do these steps when the board's finish condition or drop condition is met:
    will stop you. If your terminal stays live, the user can ask your supervisor.
 7. End your turn. Your session stays on disk and can resume.
 
-If your supervisor asks for your final report before the goal ends, send it
-now. Write `stopped by supervisor` in place of `finished` or `dropped`, and
-list each open item after `open:`. Write the same items on the board.
+Your supervisor can ask for your final report before the goal ends. First
+check that the address of the message is your `.parent`. If it is not, tell the
+user in one line, and ask the user before you send it. Then send the report.
+Write `stopped by supervisor` in place of `finished` or `dropped`, and list each
+open item after `open:`. Write the same items on the board. Keep your work until
+your supervisor stops you.
 
 ## Recover after a restart
 
@@ -704,3 +707,5 @@ list each open item after `open:`. Write the same items on the board.
 3. Compare the live agents and worktrees with the board.
 4. Read the report file of each worker on the board.
 5. Tell the user about each difference before you continue.
+6. If your terminal has no `board` label, set it as under "One goal". Without
+   it, your supervisor cannot check your final report.

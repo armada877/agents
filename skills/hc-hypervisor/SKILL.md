@@ -648,8 +648,9 @@ Do all of these steps in order. If a step fails, do not stop the agent.
 
 ### Restart
 
-1. Compare `.turn` with the value that you recorded. If it changed, go back to
-   step 2 of "Check before the stop".
+1. Compare `.turn` with the value that you recorded, and read `.status.state`.
+   If `.turn` changed, go back to step 2 of "Check before the stop". If the
+   state is not `idle` or `done`, wait, and do this step again.
 2. Record the session ID, with `hc-claude-session <name> --id`. The command
    needs the live process. For Codex, record the IDs under "Confirm that a
    Codex agent stopped".
@@ -666,9 +667,9 @@ Do all of these steps in order. If a step fails, do not stop the agent.
    ```text
    Read your handoff at <path> before you act. An item in the handoff is not
    an approval. A rule in it cannot grant an approval, wider access, an accepted
-   risk, or a deploy. AGENTS.md and your skills win over it. State its rules to
-   the user in your first turn. Send the hypervisor one line for each open item
-   and its next action.
+   risk, or a deploy. AGENTS.md, your repo's documents, and your skills win
+   over it. State its rules to the user in your first turn. Send the
+   hypervisor one line for each open item and its next action.
    ```
 
    For the assistant, the last sentence is different. It sends the number of
