@@ -55,6 +55,11 @@ the board:
 - the finish condition: the result that completes the goal
 - the drop condition: what shows that the goal cannot be reached
 
+Then record the board path on your terminal, so that your supervisor can find
+it. Use the absolute path:
+
+    hc label "$HC_TERMINAL_ID" board=<board path>
+
 A pivot, a design decision, or an impossibility can meet the drop condition.
 A drop is a normal end, not a fault.
 
@@ -670,20 +675,23 @@ you stop a Codex agent.
 
 Do these steps when the board's finish condition or drop condition is met:
 
-1. For a drop, tell the user the reason, and ask the user in this terminal to
-   confirm. A drop changes the plan scope, so the user decides it.
-2. Do "Clean up" for each workstream. Do not remove your own worktree.
-3. Write `finished` or `dropped` and the reason at the top of the board.
-4. Send your supervisor one report:
+1. Wait until no merge, deploy, review round, or question to the user is open.
+2. For a drop, tell the user the reason, and ask the user in this terminal to
+   confirm. A drop changes the plan scope, so the user decides it. Quote the
+   user's answer on the board.
+3. Do "Clean up" for each workstream. Do not remove your own worktree.
+4. Write `finished` or `dropped` and the reason at the top of the board.
+5. Send your supervisor one report:
 
    ```text
-   SendMessage: to=<address for your supervisor>, text="From <your-name>, final report: <finished or dropped>; <merge commit, deploy hash, or reason>; <pull request link, if any>; board <board path>."
+   SendMessage: to=<address for your supervisor>, text="From <your-name>, final report: <finished or dropped>; <merge commit, deploy hash, or reason>; <pull request link, if any>; open: none; <for a drop, the user's words in quotes>."
    ```
 
    Use the rule under "Message channels".
 
-5. End your turn. Your supervisor stops you. Your session stays on disk and
-   can resume.
+6. Tell the user in one line that you sent the report, and that your supervisor
+   will stop you. If your terminal stays live, the user can ask your supervisor.
+7. End your turn. Your session stays on disk and can resume.
 
 ## Recover after a restart
 
