@@ -506,6 +506,13 @@ the user about such a fix, and name the orchestrator or the supervisor.
 All other limits on messages stay. A pass from a reviewer is not the user's
 approval, so a merge still needs the user's approval.
 
+## Deploy approval
+
+Before you ask the user for deploy approval, give the user the delta between
+the approved plan or design artifact and what will deploy. Write it in plain
+words. If there is no delta, write "no delta". An unreported delta makes the
+approval invalid for that delta.
+
 ## Relay misrouted prompts
 
 A message that starts with `Misrouted prompt` comes from an agent. The user

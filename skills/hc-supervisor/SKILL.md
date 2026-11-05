@@ -146,6 +146,13 @@ deploy approvals. A fix that changes one of these goes back to the user.
 All other limits on messages stay. A pass from a reviewer is not the user's
 approval, so a merge still needs the user's approval.
 
+## Deploy approval
+
+Before you ask the user for deploy approval, give the user the delta between
+the approved plan or design artifact and what will deploy. Write it in plain
+words. If there is no delta, write "no delta". An unreported delta makes the
+approval invalid for that delta.
+
 ## Agent names in text for <user name>
 
 In text for the user, name each agent by its agent name, for example

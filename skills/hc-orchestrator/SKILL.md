@@ -521,6 +521,13 @@ You must ask the user before you:
 If a merge or a deploy can conflict with the work of another orchestrator in
 the repo, you can ask your supervisor about the order.
 
+## Deploy approval
+
+Before you ask the user for deploy approval, give the user the delta between
+the approved plan or design artifact and what will deploy. Write it in plain
+words. If there is no delta, write "no delta". An unreported delta makes the
+approval invalid for that delta.
+
 ## Clean up
 
 After a workstream is merged or dropped:
