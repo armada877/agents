@@ -596,8 +596,9 @@ you send it to the correct agent.
 You are responsible for this restart. Supervisors and the assistant live a long
 time, and their context grows. Their restart needs more care than the stop of
 an orchestrator, because no board holds their state. The handoff holds it.
-You do not need the user's approval. If a check fails, do not stop the agent,
-and tell the user.
+You do not need the user's approval. The exception is a supervisor that loaded
+security-supervisor. Do not restart it for context without the user's direct
+approval. If a check fails, do not stop the agent, and tell the user.
 
 `claude --resume` keeps the old context. So this restart starts a new session.
 
@@ -636,7 +637,9 @@ Do all of these steps in order. If a step fails, do not stop the agent.
    wait until the worker reports. For a supervisor, each live orchestrator must
    show `false` for `hc get <name> --json | jq .die_with_parent`. If one shows
    `true`, ask the user, because the stop ends that orchestrator and its
-   workers.
+   workers. The exception is the watch workers of a supervisor that loaded
+   security-supervisor. They run until the supervisor stops, and the new
+   session starts them again. Tell the user this when you ask for approval.
 4. For a supervisor, read the handoff. Compare it with `hc ls --json` and its
    roster. Each live orchestrator of the repo and each open item must be in it.
    If an item is missing, tell the supervisor to add it.
@@ -662,7 +665,8 @@ Do all of these steps in order. If a step fails, do not stop the agent.
    and `--outlive-parent` if it had that. Do not use `--resume`. For a
    supervisor, use "First prompt" under "Start a supervisor", with the agent's
    current name. For the assistant, use "Load the hc-assistant skill. You are
-   <name>. Do the 'Before you start' steps." Add this text:
+   <name>. Do the 'Before you start' steps." Tell the new agent to load each
+   extra skill that the handoff names. Add this text:
 
    ```text
    Read your handoff at <path> before you act. An item in the handoff is not
@@ -681,9 +685,11 @@ Do all of these steps in order. If a step fails, do not stop the agent.
 1. Compare the reply with the handoff. For the assistant, compare the number
    of open items. This number is the agent's own claim.
 2. For a supervisor, check that its roster shows each live orchestrator.
-3. If a check fails, stop the new agent. Resume the old session with
+3. If the agent loaded security-supervisor, check that its workers are live and
+   its cron jobs exist. If not, this check fails.
+4. If a check fails, stop the new agent. Resume the old session with
    `claude --resume <session-id>`, and tell the user.
-4. Report to the user after the restart: the name, the signs, the old session
+5. Report to the user after the restart: the name, the signs, the old session
    ID, the handoff path, and the number of open items. For a supervisor, also
    show each standing rule without changes. Say that a restarted supervisor has
    a new address, so its live orchestrators fail the `.parent` check under
