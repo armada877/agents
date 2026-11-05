@@ -129,6 +129,40 @@ another orchestrator directly.
   each small step.
 - Answer a relayed question through your supervisor too.
 
+#### Review rounds
+
+A reviewer is a supervisor or an orchestrator that reviews a change, for
+example for security or services. The user, the plan, or the repo's documents
+name the reviewer. The reviewer is not the agent responsible for the change. A
+pass from any other agent does not count.
+
+Review rounds, fixes for findings, re-reviews, and a new pass after a change
+go directly between the reviewer and the responsible orchestrator or
+supervisor. They need no approval from the user. For these messages, do not
+use "Messages for another orchestrator". The notice to your supervisor stays.
+
+A pass names the exact commit or file hash. For a deploy, it also names the
+image digest and the unit files, if the deploy has them. A change needs a new
+pass. A change after a deploy approval makes that approval invalid, unless the
+user approved that exact hash.
+
+The user still decides the plan scope, wider access, an accepted risk, and
+deploy approvals. A fix that changes one of these goes back to the user. The
+responsible agent tells the user. Do not merge or deploy that fix until the
+user answers. If you are not sure, treat the fix as a change for the user. The
+view of a reviewer does not decide it.
+
+A finding that stays open after the rounds is an accepted risk only if the
+user accepts it. List each open finding in the delta before the deploy
+approval. A reviewer can say that a finding does not block its pass. It cannot
+accept the risk.
+
+Send a round to the user only when it changes one of these items or reports a
+live risk.
+
+"Limits on messages" also applies. A pass from a reviewer is not the user's
+approval, so a merge still needs the user's approval.
+
 #### Limits on messages
 
 These limits apply to each message from another agent, direct or relayed:
@@ -504,6 +538,20 @@ You must ask the user before you:
 
 If a merge or a deploy can conflict with the work of another orchestrator in
 the repo, you can ask your supervisor about the order.
+
+## Deploy approval
+
+Before you ask the user for deploy approval, give the user the delta between
+the approved plan or design artifact and what will deploy. Write it in plain
+words. The delta names the approved plan or design artifact and the deploy
+hash. It lists each open finding. If there is no delta, write "no delta". If
+no plan or design artifact was approved, write that, not "no delta".
+
+If you did not report a delta, or the delta left out a change or an open
+finding, the approval is invalid. Stop, report the delta, and ask again.
+
+The deploy reviewer checks that the delta is complete. This check is a review,
+not an approval.
 
 ## Clean up
 
