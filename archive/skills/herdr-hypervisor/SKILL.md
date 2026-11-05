@@ -1,7 +1,7 @@
 ---
 name: herdr-hypervisor
 description: >-
-  Act as the hypervisor for all projects in a Herdr session: make project
+  Deprecated: use hc-hypervisor. Act as the hypervisor for all projects in a Herdr session: make project
   repos, start one herdr-supervisor agent for each repo, send the user's
   requests for orchestrators to the supervisors, monitor them, and tell the
   user what each needs. Use only when the user asks for a hypervisor, or asks
@@ -10,6 +10,8 @@ description: >-
 ---
 
 # Herdr hypervisor
+
+Deprecated. Use the hc-hypervisor skill. See archive/README.md.
 
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.

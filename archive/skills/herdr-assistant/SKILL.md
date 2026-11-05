@@ -1,13 +1,15 @@
 ---
 name: herdr-assistant
 description: >-
-  Act as the optional personal assistant in a Herdr session: do the user's
+  Deprecated: use hc-assistant. Act as the optional personal assistant in a Herdr session: do the user's
   personal tasks, such as email, in the assistant's own directory, and report
   to the hypervisor. Use only when a hypervisor prompt or the user tells you
   to load the herdr-assistant skill. Requires HERDR_ENV=1.
 ---
 
 # Herdr assistant
+
+Deprecated. Use the hc-assistant skill. See archive/README.md.
 
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.

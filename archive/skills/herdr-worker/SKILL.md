@@ -1,12 +1,14 @@
 ---
 name: herdr-worker
 description: >-
-  Act as a worker in Herdr for a hypervisor, supervisor, or orchestrator. Do
+  Deprecated: use hc-worker. Act as a worker in Herdr for a hypervisor, supervisor, or orchestrator. Do
   one task or workstream plan. Write a report only to your owner. Use only
   when a prompt tells you to load herdr-worker. Requires HERDR_ENV=1.
 ---
 
 # Herdr worker
+
+Deprecated. Use the hc-worker skill. See archive/README.md.
 
 "The user" is the owner of this machine. Get their name with
 `git config user.name`. Use that name in text for other agents and docs.

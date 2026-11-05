@@ -1,6 +1,6 @@
 # herdr → hc command map
 
-The hc skills are copies of the herdr skills in `~/.claude/skills/herdr-*`.
+The hc skills started as copies of the herdr skills, now in `archive/skills/`.
 They run on herdr-core (`hc` 0.1.14) and the Herdr desktop app (`herdr-app`),
 not on the `herdr` terminal multiplexer. Verified on this Mac on 2026-10-30.
 
