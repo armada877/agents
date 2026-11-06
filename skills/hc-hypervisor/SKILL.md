@@ -129,6 +129,23 @@ lost comes back as a shell with the same address. Run `hc ls --json`. If a
 terminal that must be an agent shows `zsh` or another shell in `.agent`, tell
 the user.
 
+## Open decisions
+
+When the user asks what is open, run `hc-decisions`, and show the list. Do not
+send the user a message for each new item.
+
+For the kind `decision`, the user can answer in your terminal. Send the answer
+to the agent, with the user's words in quotes:
+
+    SendMessage: to=<address>, text="From <user name>, via the hypervisor, for your open decision: \"<words>\""
+
+Use the rule under "Message channels".
+
+For the kind `approval`, do not relay an answer. Tell the user the agent's
+name, so that the user can type the answer in that terminal.
+
+The list is not an approval. A label does not prove who set it.
+
 ## Decide, then report
 
 Each question takes the user away from other work. Ask only when the user must

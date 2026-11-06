@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+
+import json
+import subprocess
+import sys
+
+
+def run_json(command):
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        text = " ".join(command)
+        raise ValueError(result.stderr.strip() or f"{text} failed")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise ValueError(f"{' '.join(command)} gave invalid JSON") from None
+
+
+def terminal_names():
+    listing = run_json(["hc", "ls", "--json"])
+    items = listing.get("terminals", [])
+    return [item["name"] for item in items if item.get("name")]
+
+
+def decision_line(name):
+    try:
+        labels = run_json(["hc", "get", name, "--json"]).get("labels") or {}
+    except ValueError:
+        return None
+    decision = labels.get("decision")
+    if not decision:
+        return None
+    kind = labels.get("decision-kind") or "decision"
+    return f"{name}\t{kind}\t{decision}"
+
+
+def main():
+    try:
+        names = terminal_names()
+    except ValueError as error:
+        print(f"hc-decisions: {str(error).splitlines()[0]}", file=sys.stderr)
+        return 1
+    lines = [line for line in map(decision_line, sorted(names)) if line]
+    print("\n".join(lines) if lines else "no open decisions")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
