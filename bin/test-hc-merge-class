@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+import json
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+
+script = Path(__file__).with_name("hc-merge-class")
+loader = SourceFileLoader("hc_merge_class", str(script))
+module = module_from_spec(spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+
+HEAD = "a" * 40
+BASE = "b" * 40
+PATH = "skills/hc-orchestrator/SKILL.md"
+SETTINGS = {"autoMode": {"allow": ["Standing merge class: skills only"]}}
+BASE_TEXT = (
+    "# Top\n\nIntro line.\n\n## Review and integrate\n\nKeep this.\n\n"
+    "## Other\n\nOld line.\n"
+)
+
+
+def pr_json(**changes):
+    data = {
+        "state": "OPEN",
+        "baseRefName": "main",
+        "headRefOid": HEAD,
+        "files": [{"path": PATH}],
+    }
+    data.update(changes)
+    return json.dumps(data)
+
+
+class Fake:
+    def __init__(self, pr=None, texts=None, fail=None, settings=SETTINGS):
+        self.pr = pr or pr_json()
+        self.texts = {
+            f"{BASE}:{PATH}": BASE_TEXT,
+            f"{HEAD}:{PATH}": BASE_TEXT.replace("Old line", "New line"),
+        }
+        self.texts.update(texts or {})
+        self.fail = fail
+        self.settings = settings
+
+    def run(self, command):
+        if self.fail and command[0] == self.fail:
+            raise module.CheckError(f"{command[0]} failed: boom")
+        if command[0] == "gh":
+            return self.pr
+        if command[:2] == ["git", "rev-parse"]:
+            return HEAD
+        if command[:2] == ["git", "merge-base"]:
+            return BASE + "\n"
+        if command[:2] == ["git", "show"]:
+            if command[2] not in self.texts:
+                raise module.CheckError("git show failed: missing")
+            return self.texts[command[2]]
+        raise AssertionError(command)
+
+    def reasons(self):
+        with (
+            patch.object(module, "run", side_effect=self.run),
+            patch.object(module, "read_settings", return_value=self.settings),
+        ):
+            return module.all_reasons("7", HEAD)
+
+
+class ClassTests(unittest.TestCase):
+    def assert_fail(self, reasons, text):
+        self.assertTrue(any(text in reason for reason in reasons), reasons)
+
+    def test_pass(self):
+        self.assertEqual(Fake().reasons(), [])
+
+    def test_no_rule(self):
+        settings = {"autoMode": {"allow": ["Other rule"]}}
+        reasons = Fake(settings=settings).reasons()
+        self.assert_fail(reasons, "no autoMode.allow rule")
+
+    def test_wrong_head(self):
+        reasons = Fake(pr=pr_json(headRefOid="c" * 40)).reasons()
+        self.assert_fail(reasons, "head is")
+
+    def test_closed_pr(self):
+        reasons = Fake(pr=pr_json(state="CLOSED")).reasons()
+        self.assert_fail(reasons, "not OPEN")
+
+    def test_path_outside_skills(self):
+        files = [{"path": "bin/hc-send"}]
+        reasons = Fake(pr=pr_json(files=files)).reasons()
+        self.assert_fail(reasons, "outside skills/")
+
+    def test_path_under_security_supervisor(self):
+        path = "skills/security-supervisor/SKILL.md"
+        reasons = Fake(pr=pr_json(files=[{"path": path}])).reasons()
+        self.assert_fail(reasons, "security-supervisor")
+
+    def test_added_file(self):
+        fake = Fake()
+        del fake.texts[f"{BASE}:{PATH}"]
+        self.assert_fail(fake.reasons(), "added or deleted")
+
+    def test_protected_section_changed(self):
+        changed = BASE_TEXT.replace("Keep this", "Keep that")
+        reasons = Fake(texts={f"{HEAD}:{PATH}": changed}).reasons()
+        self.assert_fail(reasons, "protected section changed")
+
+    def test_sensitive_line_in_other_section(self):
+        changed = BASE_TEXT.replace("Old line", "Needs approval now")
+        reasons = Fake(texts={f"{HEAD}:{PATH}": changed}).reasons()
+        self.assert_fail(reasons, "sensitive line changed")
+
+    def test_failed_command(self):
+        self.assert_fail(Fake(fail="gh").reasons(), "gh failed")
+
+
+class MainTests(unittest.TestCase):
+    def test_exit_codes(self):
+        argv = ["hc-merge-class", "7", "--head", HEAD]
+        with patch.object(sys, "argv", argv), patch("builtins.print"):
+            with patch.object(module, "all_reasons", return_value=[]):
+                self.assertEqual(module.main(), 0)
+            with patch.object(module, "all_reasons", return_value=["x"]):
+                self.assertEqual(module.main(), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
