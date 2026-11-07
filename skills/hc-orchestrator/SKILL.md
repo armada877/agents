@@ -272,10 +272,16 @@ hc get "$HC_TERMINAL_ID" --json | jq -r .status.app
   answer arrives as `<hc from=...>` `[test: probe, hc 0.1.18]`. Send each
   template in this skill with `hc-send`.
 - **Sandbox.** The Codex sandbox blocks `hc` `[test: probe, hc 0.1.18: "The core
-  could not start because the file system is read-only"]`. Run each `hc`,
-  `hc-send`, `hc-decisions`, and `herdr-app` command with sandbox escalation.
-  Give a short reason, for example "hc message to my supervisor". Do not ask
-  for wider access for other commands because of this rule.
+  could not start because the file system is read-only"]`. Escalate only these
+  commands, each with a short reason, for example "hc message to my
+  supervisor": `hc ls`, `hc get`, `hc label`, `hc send`, `hc wait`, `hc read`,
+  `hc kill`, `hc rm`, `hc keep` `[help: hc --help, hc 0.1.18]`; `hc run` only
+  with the exact worker start argv from "Start a workstream" and "Start a
+  companion worker"; `hc-send`; `hc-claude-session`; `hc-decisions`; and
+  `herdr-app do tab.rename`. Never escalate `hc exec`, `hc file`, `hc keys`,
+  `hc attach`, any `--on`, or `hc run` of anything else. For those, ask the
+  user in your terminal first. With an exact list, a Codex orchestrator is no
+  wider than a Claude orchestrator, which runs hc with no sandbox.
 - **Monitor.** This replaces the background `hc wait` under "Monitor
   workers". Codex has no background command that wakes you `[unverified]`. Do
   not keep a turn open with a long `hc wait`. End the turn. Child reports and
@@ -778,8 +784,8 @@ you stop a Codex agent.
 
    hc has no field for the Codex session ID. Find the session file by its
    launch folder. Use the `cwd` from `hc get <name> --json`. Two Codex agents in
-   one folder can match the wrong file. Check that the start time of the file
-   matches the start of the agent `[test: probe, codex-cli 0.167.0]`:
+   one folder can match the wrong file. Check that the time in the file name
+   matches `created_ms` from `hc get <name> --json` `[test: probe, codex-cli 0.167.0]`:
 
    ```bash
    f=$(grep -l -F "<cwd>" $(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -20) | head -1)

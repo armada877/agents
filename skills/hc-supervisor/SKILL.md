@@ -740,7 +740,8 @@ Before each stop, do one of these:
   with `hc send`, and one of these stays true for 15 minutes: its status is
   `idle`, `done`, or `error` with no answer, or its screen and its `.turn` do
   not change. `blocked` is never stuck. A Codex orchestrator with a `decision`
-  label is not stuck. It waits for the user. Show the user what it asks.
+  label is not stuck. It waits for the user. If the label stays for 24 hours, tell the
+  user again. Show the user what it asks.
 
 ### Check a final report
 
@@ -834,8 +835,9 @@ time you stop a Codex agent.
    other line is a process that did not stop.
 3. Find the session file of the agent by its launch folder. Use the `cwd`
    from `hc get <name> --json`. Two Codex agents in one folder can match the
-   wrong file. Check that the start time of the file matches the start of the
-   agent `[test: probe, codex-cli 0.167.0]`:
+   wrong file. Check that the time in the file name
+   matches `created_ms` from `hc get <name> --json`
+   `[test: probe, codex-cli 0.167.0]`:
 
    ```bash
    f=$(grep -l -F "<cwd>" $(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -20) | head -1)
