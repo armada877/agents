@@ -20,6 +20,11 @@ plain text at the end of a turn. The dialog keeps the agent `blocked`, kind
 done, and the notice clears when the user looks at the agent. An agent with no
 dialog, or a worker, reports to its owner. The owner asks.
 
+The dialog must stand on its own. Put the facts that the user needs into the
+question and the option descriptions. Do not refer to text above the dialog.
+Put a longer detail, such as a diff or a plan, in the option preview, or name a
+file path in the question.
+
 In text for the user, name each agent by its agent name. Do not give the user
 a terminal address or a space ID.
 
