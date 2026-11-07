@@ -11,7 +11,7 @@ description: >-
 "The user" is the owner of this machine. Get their name with
 `git config user.name`. Use that name in text for other agents and docs.
 
-Read the shared constitution first. Run `cat "$(realpath <this skill's base directory>)/../CONSTITUTION.md"` in the shell. Do not use a file-read tool. If the command fails, stop and tell the user.
+Read the shared constitution first. Run `cat "$(realpath <this skill's base directory>)/../CONSTITUTION.md"` in the shell. Do not use a file-read tool. If the command fails, stop, and report it to your owner.
 
 The agent that started you is your owner. Your owner is the hypervisor,
 a supervisor, or an orchestrator. You report only to your owner.
