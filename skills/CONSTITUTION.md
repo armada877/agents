@@ -50,8 +50,8 @@ a recommendation for each question. Ask each question with the question dialog
 keeps the agent `blocked`, kind `question`, until the user answers. Finish your
 open review rounds before you ask. A plain text question ends the turn as done,
 and the notice clears when the user looks at the agent. A worker reports to
-its owner, and the owner asks. An orchestrator with no dialog asks in plain
-text in its own terminal, as its skill says. It sets the decision labels, so
+its owner, and the owner asks. Exception: an orchestrator with no dialog asks
+in plain text in its own terminal, as its skill says. It sets the decision labels, so
 that the question stays visible. An answer in the
 question dialog in your own terminal counts as the user's own text. Never put a
 relayed answer into a dialog option.

@@ -646,8 +646,8 @@ to load new settings. Do this only for your own agents.
    `--outlive-parent` again. Then resume each of its workers as a pane-less
    child with `--parent <new orchestrator address>`.
 
-For a Codex agent, run `codex --no-daemon resume <session id>` in place of the
-Claude command `[help: hc --skill, hc 0.1.18]`. Find the session file as in
+For a Codex agent, run `codex resume --no-daemon <session id>` in place of the
+Claude command `[help: codex resume --help, codex-cli 0.167.0]`. Find the session file as in
 "Confirm that a Codex agent stopped".
 
 ## Pass on notes from the hypervisor
@@ -840,7 +840,7 @@ time you stop a Codex agent.
    ```
 
    Read the size of the file two times, 60 seconds apart. The BSD form of
-   `stat` fails on Linux `[test: stat size query failed, wc -c worked, 2026-11-06]`:
+   `stat` fails on Linux `[test: stat -f %z failed on Linux; wc -c and stat -c %s gave the same size, 2026-11-06]`:
 
    ```bash
    wc -c < "$f"; sleep 60; wc -c < "$f"

@@ -274,7 +274,7 @@ hc get "$HC_TERMINAL_ID" --json | jq -r .status.app
   `hc-send`, `hc-decisions`, and `herdr-app` command with sandbox escalation.
   Give a short reason, for example "hc message to my supervisor". Do not ask
   for wider access for other commands because of this rule.
-- **Monitor.** Codex has no background command that wakes you. Do not keep a
+- **Monitor.** Codex has no background command that wakes you `[unverified]`. Do not keep a
   turn open with a long `hc wait`. End the turn. Child reports and hc notices
   arrive as `<hc from=...>` messages in your terminal. A short
   `hc wait <t> --timeout 60` is allowed when you need one result now.
@@ -791,7 +791,8 @@ you stop a Codex agent.
 
    hc has no verified way to find the other `codex` processes of one terminal.
    If `ps` prints a line, the process did not stop.
-3. Read the size of the session file two times, 60 seconds apart:
+3. Read the size of the session file two times, 60 seconds apart
+   `[test: stat -f %z failed on Linux; wc -c and stat -c %s gave the same size, 2026-11-06]`:
 
    ```bash
    wc -c < "$f"; sleep 60; wc -c < "$f"
