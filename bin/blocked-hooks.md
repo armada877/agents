@@ -16,7 +16,20 @@ One current-turn dialog permits Stop, even if the final text contains another qu
 The filter detects English questions that start with selected question words.
 It accepts `can`, `could`, `would`, `will`, `do`, `did`, `are`, or `have`, followed by `you`.
 It also accepts `should`, `shall`, `may`, or `can`, followed by `I`.
-It accepts `which`, `what`, `how`, `where`, and `when`.
+It accepts `which`, `what`, `how`, `where`, and `when` when the question contains `you` or `your`.
+These explicit questions match anywhere, including lists and report sections.
+Other questions with these five words match only at the end of the filtered message.
+They do not match inside Markdown lists or reported sections.
+List markers are `-`, `*`, `+`, and numbers followed by `.` or `)`.
+Reported sections start with a line that ends with one of these forms:
+
+- `Research questions:` or `Reported questions:`
+- `Questions from ...:` or `Questions for ...:`
+- `... asked:` or `... asks:`
+
+These forms ignore case and accept Markdown heading markers or surrounding asterisks.
+A blank line or another Markdown heading ends the reported section.
+Trailing asterisks and underscores do not prevent a final question from matching.
 It also accepts `Is that okay?`, `Does that work for you?`, and `Do I have your approval?`.
 It accepts questions that start with `Is it okay if I`.
 These forms use the same quote, code, and reported-question filters.
@@ -35,6 +48,9 @@ The program does not fall back to transcript text when final text is absent.
 
 A match without a current-turn dialog returns `decision: block` with an instruction to use `AskUserQuestion`.
 The program permits Stop when `stop_hook_active` is true. Thus, it requests at most one continuation per hook chain.
+A new user turn can supply `stop_hook_active: false` and start another check.
+An earlier dialog does not cover that new turn.
+The flag controls the continuation check. The transcript controls the dialog count.
 It cannot guarantee a dialog after that continuation.
 Invalid input, missing files, or invalid transcripts permit Stop without output.
 Input limits are 1 MiB for payload text and 16 MiB for transcript text, measured in characters.
