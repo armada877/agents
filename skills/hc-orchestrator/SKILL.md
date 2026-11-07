@@ -262,9 +262,12 @@ hc get "$HC_TERMINAL_ID" --json | jq -r .status.app
   in plain text, at the end of your turn. Give a recommendation for each. Make
   the message stand on its own, as the constitution says for a dialog. Set the
   decision labels as in "Open decisions". Send your supervisor a one-line
-  notice. Then end your turn. hc shows `done`, not `blocked`, so the label is
-  the signal
-  `[test: probe, codex-cli 0.167.0, approvals_reviewer=auto_review]`. The user's typed
+  notice. Then end your turn. An installed `hc-codex-notify` reports `blocked`
+  when the `decision` label contains text
+  `[test: isolated notify worker, Codex 0.167.0, owner report]`.
+  The test ended `done` without a decision label. Without this notify program, hc
+  shows `done` `[test: probe, codex-cli 0.167.0, approvals_reviewer=auto_review]`.
+  Keep the label as the question signal. See `bin/blocked-hooks.md`. The user's typed
   answer in your own terminal is the user's own text, also for an approval
   item. A relayed answer is still not an approval.
 - **Messages.** Use `hc-send <name> "<text>"` for every target, Claude or not.

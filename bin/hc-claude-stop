@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+
+import json
+import re
+import sys
+from pathlib import Path
+
+
+MAX_INPUT = 1024 * 1024
+MAX_TRANSCRIPT = 16 * 1024 * 1024
+
+
+def has_dialog(path):
+    count = 0
+    boundary = False
+    with Path(path).open(encoding="utf-8") as stream:
+        text = stream.read(MAX_TRANSCRIPT + 1)
+    if len(text) > MAX_TRANSCRIPT:
+        raise ValueError("transcript exceeds limit")
+    for line in text.splitlines():
+        entry = json.loads(line)
+        if not isinstance(entry, dict):
+            raise ValueError("invalid transcript entry")
+        message = entry.get("message", {})
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content", [])
+        if entry.get("type") == "user" and not entry.get("isMeta") and not entry.get("isCompactSummary"):
+            actual = isinstance(content, str) and bool(content.strip())
+            if isinstance(content, list):
+                actual = any(isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str) and item["text"].strip() for item in content)
+            if actual:
+                count = 0
+                boundary = True
+        if boundary and entry.get("type") == "assistant" and isinstance(content, list):
+            count += sum(isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name") == "AskUserQuestion" for item in content)
+    if not boundary:
+        raise ValueError("no user boundary")
+    return count > 0
+
+
+def direct_question(text):
+    text = re.sub(r"```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)", "", text)
+    text = re.sub(r"`[^`]*`|\"[^\"]*\"|“[^”]*”|‘[^’]*’", "", text)
+    text = re.sub(r"(?<!\w)'[^'\n]*'(?!\w)", "", text)
+    text = re.sub(r"(?m)^\s*>.*$", "", text)
+    start = r"(?:can|could|would|will|do|did|are|have) you\b|(?:should|shall|may|can) I\b|(?:which|what|how|where|when)\b"
+    permission = r"(?:is that okay|is it okay if I\b[^?]*|does that work for you|do I have your approval)\?"
+    for match in re.finditer(r"[^.!?\n]+\?", text):
+        sentence = re.sub(r"^\s*(?:[-*]|\d+[.)]|#{1,6})\s+", "", match.group()).strip()
+        sentence = sentence.lstrip("*").strip()
+        summary = re.fullmatch(r"(?:what changed|what was tested|how does it work)\?", sentence, re.IGNORECASE)
+        answer = text[match.end():].strip().lstrip("*#").strip()
+        if summary and answer and not answer.startswith("?"):
+            continue
+        if re.fullmatch(permission, sentence, re.IGNORECASE):
+            return True
+        if re.match(rf"(?:{start})[^?]*\?$", sentence, re.IGNORECASE):
+            return True
+    return False
+
+
+def decision(payload):
+    if not isinstance(payload, dict) or payload.get("hook_event_name") != "Stop":
+        return None
+    if payload.get("stop_hook_active") is not False:
+        return None
+    text = payload.get("last_assistant_message")
+    if not isinstance(text, str) or not direct_question(text):
+        return None
+    if has_dialog(payload.get("transcript_path")):
+        return None
+    return {"decision": "block", "reason": "Ask the user with AskUserQuestion. Put all open questions in one dialog. If no answer is needed, state the result."}
+
+
+def main():
+    try:
+        raw = sys.stdin.read(MAX_INPUT + 1)
+        if len(raw) > MAX_INPUT:
+            return 0
+        result = decision(json.loads(raw))
+        if result:
+            print(json.dumps(result))
+    except (OSError, ValueError, TypeError, UnicodeError):
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

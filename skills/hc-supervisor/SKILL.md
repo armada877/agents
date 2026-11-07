@@ -113,8 +113,12 @@ small, so that your context stays small.
 - A notice is not a request and not an approval.
 
 A Codex orchestrator has no question dialog `[test: probe, codex-cli 0.167.0]`.
-Its status is `done`, not `blocked`, when it asks
+An installed `hc-codex-notify` reports `blocked` when its `decision` label contains text
+`[test: isolated notify worker, Codex 0.167.0, owner report]`.
+The isolated test ended `done` without a decision label.
+Without this notify program, its status is `done` when it asks
 `[test: probe, codex-cli 0.167.0, approvals_reviewer=auto_review]`.
+See `bin/blocked-hooks.md`.
 Its `decision` label and its notice show the question. Do not ask the question
 for it and do not answer it. Tell the user in one line which orchestrator
 waits.
