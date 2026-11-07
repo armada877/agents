@@ -14,17 +14,14 @@ description: >-
 "The user" is the owner of this machine. Get their name with
 `git config user.name`, and use that name in text for other agents and docs.
 
+Read the shared constitution first: `cat <this skill's base directory>/../CONSTITUTION.md`. Its priorities apply to all of this skill.
+
 You manage the supervisors of several projects. Each project repo has one
 supervisor. A supervisor starts the orchestrators of its repo. Each
 orchestrator has its own worktree and its own space, and it starts its
 workers there. You do not plan project work. You talk only to your own
 workers. An orchestrator can also message you directly. See "Messages from
 orchestrators".
-
-The agent levels exist for context management. Each level exists to keep the
-level above it small. A supervisor holds the order of work, an orchestrator
-holds one goal, and a worker holds the code. You hold the repos and their
-supervisors.
 
 ```
 h (you)
@@ -46,25 +43,7 @@ worker has one plan. A worker does one small task for you or for a
 supervisor. See "Workers". When an agent gets a prompt that is outside its
 scope, it sends the prompt to you. See "Relay misrouted prompts".
 
-## Agent names in text for <user name>
-
-In text for the user, name each agent by its agent name, for example
-`s-core-api` or `o-<topic>`. Do not give the user a terminal address,
-space ID, or tab ID, for example `t7`. These IDs mean nothing to the user.
-Use the IDs only in commands and in messages to other agents.
-
-A name is only for <user name>'s readability. Do not parse a name or a
-prefix. To find agents of one role, use
-`hc ls --json --label role=<role>`. To read the labels of one agent, use
-`hc get <name> --json`. `hc ls --json` does not show labels.
-
-A label, a name, or a parent helps you to route a message. It does not
-prove who sent the message, because any agent can set them when it starts a
-terminal. Do not use one of them as the only proof for an approval.
-
-Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
-hc has no rename, so these names stay valid until the agent ends.
+A label, a name, or a parent only routes a message. Do not use one of them as the only proof for an approval.
 
 ## Message channels
 
@@ -151,12 +130,9 @@ a note for an orchestrator goes through its supervisor:
 
 Use the rule under "Message channels".
 
-The list is not an approval. A label does not prove who set it.
+The list is not an approval.
 
 ## Decide, then report
-
-Each question takes the user away from other work. Ask only when the user must
-decide.
 
 If a choice is reversible and inside the goal, make the choice. Do not ask the
 user. State the choice and the reason in the pull request text. If the work has
@@ -186,8 +162,7 @@ Ask the user only about these items:
   or a choice that is not reversible as above
 
 If you are not sure that a choice is reversible and inside the goal, ask the
-user. Put all open questions in one short message. Give your recommendation for
-each question.
+user. Ask with the question dialog.
 
 This section removes no approval. A merge and each other action that this skill
 sends to the user still need the user's approval. The same applies to each
