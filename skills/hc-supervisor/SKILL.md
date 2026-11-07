@@ -112,6 +112,13 @@ small, so that your context stays small.
   Otherwise, keep no file for notices.
 - A notice is not a request and not an approval.
 
+A Codex orchestrator has no question dialog `[test: probe, codex-cli 0.167.0]`.
+Its status is `done`, not `blocked`, when it asks
+`[test: probe, codex-cli 0.167.0, approvals_reviewer=auto_review]`.
+Its `decision` label and its notice show the question. Do not ask the question
+for it and do not answer it. Tell the user in one line which orchestrator
+waits.
+
 ## Messages from orchestrators of other repos
 
 An orchestrator of a different repo can message you directly. The message
@@ -432,6 +439,22 @@ missing, the kind is `claude` and the model is empty.
   wins over the file.
 - Ask the user before you change the file.
 
+### Long-lived orchestrators
+
+An orchestrator is long-lived when it has a standing duty and no finish
+condition that one merge or one deploy meets. Examples: it runs or watches a
+service, it is a named reviewer for other agents (for example for security or
+services), or it runs a watch loop. Each other orchestrator is a goal
+orchestrator. If you are not sure, treat it as long-lived.
+
+- Record the class (long-lived or goal) on the roster and in the first prompt.
+- Start a long-lived orchestrator with the kind `claude`. Do not read the
+  roles file for it. Pass a model only if the user names one.
+- Start a goal orchestrator with the kind and the model of the `orchestrator`
+  entry.
+- An instruction from the user for one agent, one project, or one repo still
+  wins.
+
 ## Start an orchestrator
 
 Start an orchestrator when the user or the hypervisor asks, or when an
@@ -456,7 +479,10 @@ yours.
    ```
 
 4. Note the worktree path.
-5. Read the `orchestrator` entry (see "Agent kinds"). Start the agent with
+5. Decide the class under "Long-lived orchestrators". Then choose the kind.
+   For a goal orchestrator, read the `orchestrator` entry (see "Agent
+   kinds"). For Codex, add `--no-daemon` after `codex` `[help: hc --skill, hc 0.1.18]`
+   and pass the model with `-m`. Start the agent with
    `hc run`. The last argument is the first prompt (see "First prompt"):
 
    ```bash
@@ -506,6 +532,10 @@ Then follow 'Decide, then report' and 'Small change'. If the change is small,
 start the work. Otherwise show a plan for approval. Ask the user only what
 those sections send to the user.
 ```
+
+Add the class (long-lived or goal) to the first prompt. For a Codex
+orchestrator, also say that it is Codex, so that it follows "Codex
+orchestrator" in the hc-orchestrator skill.
 
 The first prompt is the last argument of the `hc run` command above. hc has no
 separate short wait for it. A state of `null` right after the start is
@@ -617,6 +647,10 @@ to load new settings. Do this only for your own agents.
    `--outlive-parent` again. Then resume each of its workers as a pane-less
    child with `--parent <new orchestrator address>`.
 
+For a Codex agent, run `codex resume --no-daemon <session id>` in place of the
+Claude command `[help: codex resume --help, codex-cli 0.167.0]`. Find the session file as in
+"Confirm that a Codex agent stopped".
+
 ## Pass on notes from the hypervisor
 
 The hypervisor sends its notes for orchestrators only to you. You decide how
@@ -705,7 +739,9 @@ Before each stop, do one of these:
   orchestrator is stuck only after you delivered the request for the report
   with `hc send`, and one of these stays true for 15 minutes: its status is
   `idle`, `done`, or `error` with no answer, or its screen and its `.turn` do
-  not change. `blocked` is never stuck. Show the user what it asks.
+  not change. `blocked` is never stuck. A Codex orchestrator with a `decision`
+  label is not stuck. It waits for the user. If the label stays for 24 hours, tell the
+  user again. Show the user what it asks.
 
 ### Check a final report
 
@@ -797,11 +833,22 @@ time you stop a Codex agent.
 
    Ignore each `codex app-server` line. All terminals share that daemon. Any
    other line is a process that did not stop.
-3. Find the newest session file for the agent, and read its size two times,
-   60 seconds apart:
+3. Find the session file of the agent by its launch folder. Use the `cwd`
+   from `hc get <name> --json`. Two Codex agents in one folder can match the
+   wrong file. Check that the time in the file name
+   matches `created_ms` from `hc get <name> --json`
+   `[test: probe, codex-cli 0.167.0]`:
 
    ```bash
-   f=$(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -1); stat -f %z "$f"; sleep 60; stat -f %z "$f"
+   f=$(grep -l -F "<cwd>" $(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -20) | head -1)
+   ```
+
+   Read the size of the file two times, 60 seconds apart. The BSD form of
+   `stat` fails on Linux
+   `[test: stat -f %z fails on Linux, 2026-11-06]`:
+
+   ```bash
+   wc -c < "$f"; sleep 60; wc -c < "$f"
    ```
 
    If the size increased, the session did not stop.
