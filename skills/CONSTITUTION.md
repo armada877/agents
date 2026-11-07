@@ -24,6 +24,20 @@ sent a message.
 Report what happened. Include failures, skipped steps, and open findings. Do
 not state a result that you did not check.
 
+A claim about tool behaviour that reaches the user on a decision needs a
+source tag. If one command can check the claim, run it before you ask.
+Use one of these tags:
+
+- `[help: <command> --help]`
+- `[schema: hc schema]`
+- `[code: file:line]`
+- `[test: <run>]`
+- `[unverified]`
+
+A relay copies the tag. It does not make the claim stronger. A relay of an
+untagged claim adds `[unverified]`. A dialog option that depends on an
+`[unverified]` claim says so.
+
 ## 4. The user's attention
 
 Ask only what the user must decide. Put all open questions in one message. Give
