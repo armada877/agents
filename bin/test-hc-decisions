@@ -54,6 +54,10 @@ def listing_of(*names):
     return completed({"terminals": [{"name": name} for name in names]})
 
 
+def listing_of_items(*items):
+    return completed({"terminals": list(items)})
+
+
 class DecisionTests(unittest.TestCase):
     def test_no_decisions(self):
         terminals = {"a": {}, "b": {"decision": ""}}
@@ -71,17 +75,59 @@ class DecisionTests(unittest.TestCase):
         expected = "a-two\tdecision\twhich order?\nz-one\tapproval\tmerge?\n"
         self.assertEqual(out, expected)
 
-    def test_missing_kind_is_decision(self):
+    def test_missing_kind_is_approval(self):
         terminals = {"a": {"decision": "pick one"}}
         code, out, _ = run_main(listing_of("a"), terminals)
         self.assertEqual(code, 0)
-        self.assertEqual(out, "a\tdecision\tpick one\n")
+        self.assertEqual(out, "a\tapproval\tpick one\n")
 
-    def test_unreadable_terminal_is_skipped(self):
-        terminals = {"a": {"decision": "pick one"}}
+    def test_capital_kind_is_approval(self):
+        terminals = {"a": {"decision": "x", "decision-kind": "Decision"}}
+        _, out, _ = run_main(listing_of("a"), terminals)
+        self.assertEqual(out, "a\tapproval\tx\n")
+
+    def test_kind_with_space_is_approval(self):
+        terminals = {"a": {"decision": "x", "decision-kind": "approval "}}
+        _, out, _ = run_main(listing_of("a"), terminals)
+        self.assertEqual(out, "a\tapproval\tx\n")
+
+    def test_newline_stays_one_row(self):
+        labels = {"decision": "one\ntwo", "decision-kind": "decision"}
+        terminals = {"a": labels}
+        _, out, _ = run_main(listing_of("a"), terminals)
+        self.assertEqual(out, "a\tdecision\tone two\n")
+
+    def test_escape_sequence_is_removed(self):
+        labels = {"decision": "\x1b[31mred", "decision-kind": "decision"}
+        terminals = {"a": labels}
+        _, out, _ = run_main(listing_of("a"), terminals)
+        self.assertNotIn("\x1b", out)
+        self.assertEqual(out, "a\tdecision\t [31mred\n")
+
+    def test_decision_is_capped_at_200_characters(self):
+        terminals = {"a": {"decision": "x" * 300, "decision-kind": "decision"}}
+        _, out, _ = run_main(listing_of("a"), terminals)
+        self.assertEqual(out, "a\tdecision\t" + "x" * 200 + "\n")
+
+    def test_terminal_with_only_an_address(self):
+        labels = {"decision": "pick one", "decision-kind": "decision"}
+        terminals = {"t9": labels}
+        listing = listing_of_items({"address": "t9"})
+        _, out, _ = run_main(listing, terminals)
+        self.assertEqual(out, "t9\tdecision\tpick one\n")
+
+    def test_unreadable_terminal_is_counted(self):
+        labels = {"decision": "pick one", "decision-kind": "decision"}
+        terminals = {"a": labels}
         code, out, _ = run_main(listing_of("gone", "a"), terminals)
         self.assertEqual(code, 0)
-        self.assertEqual(out, "a\tdecision\tpick one\n")
+        expected = "a\tdecision\tpick one\n1 terminals could not be read\n"
+        self.assertEqual(out, expected)
+
+    def test_only_unreadable_terminals(self):
+        code, out, _ = run_main(listing_of("gone"), {})
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "1 terminals could not be read\n")
 
     def test_ls_failure(self):
         failed = completed(returncode=1, stderr="no server")

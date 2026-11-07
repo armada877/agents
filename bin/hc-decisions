@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import unicodedata
 
 
 def run_json(command):
@@ -16,32 +17,53 @@ def run_json(command):
         raise ValueError(f"{' '.join(command)} gave invalid JSON") from None
 
 
-def terminal_names():
+def clean(text):
+    return "".join(
+        " " if unicodedata.category(char).startswith("C") else char
+        for char in str(text)
+    )
+
+
+def terminal_ids():
     listing = run_json(["hc", "ls", "--json"])
     items = listing.get("terminals", [])
-    return [item["name"] for item in items if item.get("name")]
+    ids = [item.get("name") or item.get("address") for item in items]
+    return [identifier for identifier in ids if identifier]
 
 
-def decision_line(name):
-    try:
-        labels = run_json(["hc", "get", name, "--json"]).get("labels") or {}
-    except ValueError:
-        return None
+def decision_line(identifier):
+    labels = run_json(["hc", "get", identifier, "--json"]).get("labels") or {}
     decision = labels.get("decision")
     if not decision:
         return None
-    kind = labels.get("decision-kind") or "decision"
-    return f"{name}\t{kind}\t{decision}"
+    is_decision = labels.get("decision-kind") == "decision"
+    kind = "decision" if is_decision else "approval"
+    fields = [clean(identifier), clean(kind), clean(decision)[:200]]
+    return "\t".join(fields)
 
 
 def main():
     try:
-        names = terminal_names()
+        identifiers = terminal_ids()
     except ValueError as error:
         print(f"hc-decisions: {str(error).splitlines()[0]}", file=sys.stderr)
         return 1
-    lines = [line for line in map(decision_line, sorted(names)) if line]
-    print("\n".join(lines) if lines else "no open decisions")
+    lines = []
+    unread = 0
+    for identifier in sorted(identifiers):
+        try:
+            line = decision_line(identifier)
+        except ValueError:
+            unread += 1
+            continue
+        if line:
+            lines.append(line)
+    if lines:
+        print("\n".join(lines))
+    if unread:
+        print(f"{unread} terminals could not be read")
+    if not lines and not unread:
+        print("no open decisions")
     return 0
 
 
