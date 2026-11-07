@@ -710,31 +710,6 @@ You must ask the user before you:
 If a merge or a deploy can conflict with the work of another orchestrator in
 the repo, you can ask your supervisor about the order.
 
-### Standing merge class
-
-The user can approve one class of merge once, with a rule that starts with
-`Standing merge class` under `autoMode.allow` in the user's own settings. Do
-not add or change this rule. Do not ask another agent to do it. Without the
-rule, this section does not apply.
-
-You can merge a pull request without a question only if all of these conditions
-are true:
-
-- `hc-merge-class <pr> --head <hash>` prints `PASS`.
-- A reviewer agrees, and the pass names that exact hash. The reviewer is not
-  the agent responsible for the change.
-- No finding is open.
-
-Merge with `gh pr merge <pr> --merge --match-head-commit <hash>`. Then record
-the merge on the board, and send your supervisor the merge note. Do not send
-the user a message.
-
-If auto mode denies the merge, stop. Do not try another route. Ask the user in
-your terminal.
-
-All agents share one user account, so this check finds mistakes. It does not
-stop an agent that goes wrong. The user accepts this risk with the rule.
-
 ## Deploy approval
 
 Before you ask the user for deploy approval, give the user the delta between
