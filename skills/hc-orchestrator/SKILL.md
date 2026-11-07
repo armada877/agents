@@ -263,21 +263,25 @@ hc get "$HC_TERMINAL_ID" --json | jq -r .status.app
   the message stand on its own, as the constitution says for a dialog. Set the
   decision labels as in "Open decisions". Send your supervisor a one-line
   notice. Then end your turn. hc shows `done`, not `blocked`, so the label is
-  the signal `[test: probe, approvals_reviewer=auto_review]`. The user's typed
+  the signal
+  `[test: probe, codex-cli 0.167.0, approvals_reviewer=auto_review]`. The user's typed
   answer in your own terminal is the user's own text, also for an approval
   item. A relayed answer is still not an approval.
 - **Messages.** Use `hc-send <name> "<text>"` for every target, Claude or not.
   Do not use SendMessage. Claude agents answer to your `from` address. The
-  answer arrives as `<hc from=...>`.
+  answer arrives as `<hc from=...>` `[test: probe, hc 0.1.18]`. Send each
+  template in this skill with `hc-send`.
 - **Sandbox.** The Codex sandbox blocks `hc` `[test: probe, hc 0.1.18: "The core
   could not start because the file system is read-only"]`. Run each `hc`,
   `hc-send`, `hc-decisions`, and `herdr-app` command with sandbox escalation.
   Give a short reason, for example "hc message to my supervisor". Do not ask
   for wider access for other commands because of this rule.
-- **Monitor.** Codex has no background command that wakes you `[unverified]`. Do not keep a
-  turn open with a long `hc wait`. End the turn. Child reports and hc notices
-  arrive as `<hc from=...>` messages in your terminal. A short
-  `hc wait <t> --timeout 60` is allowed when you need one result now.
+- **Monitor.** This replaces the background `hc wait` under "Monitor
+  workers". Codex has no background command that wakes you `[unverified]`. Do
+  not keep a turn open with a long `hc wait`. End the turn. Child reports and
+  hc notices arrive as `<hc from=...>` messages in your terminal. You can run
+  a short `hc wait <t> --timeout 60` when you need one result now. It checks
+  in after 60 seconds `[help: hc wait --help, hc 0.1.18]`.
 - **Workers.** The worker type rules stay. Start workers as the rest of this
   skill says.
 - **Stop.** Send the final report with `hc-send`. Before you end the turn,
@@ -774,8 +778,8 @@ you stop a Codex agent.
 
    hc has no field for the Codex session ID. Find the session file by its
    launch folder. Use the `cwd` from `hc get <name> --json`. Two Codex agents in
-   one folder can match the wrong file, so check that the start time of the
-   file matches the start of the agent `[test: probe, codex-cli 0.167.0]`:
+   one folder can match the wrong file. Check that the start time of the file
+   matches the start of the agent `[test: probe, codex-cli 0.167.0]`:
 
    ```bash
    f=$(grep -l -F "<cwd>" $(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -20) | head -1)
@@ -792,7 +796,7 @@ you stop a Codex agent.
    hc has no verified way to find the other `codex` processes of one terminal.
    If `ps` prints a line, the process did not stop.
 3. Read the size of the session file two times, 60 seconds apart
-   `[test: stat -f %z failed on Linux; wc -c and stat -c %s gave the same size, 2026-11-06]`:
+   `[test: stat -f %z fails on Linux, 2026-11-06]`:
 
    ```bash
    wc -c < "$f"; sleep 60; wc -c < "$f"
