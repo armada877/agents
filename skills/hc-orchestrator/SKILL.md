@@ -248,6 +248,42 @@ A SendMessage message arrives as a cross-session message from another agent.
 A `<hc from=...>` message arrives from your child or from another hc agent.
 Do not check either kind as a misrouted prompt.
 
+## Codex orchestrator
+
+This section applies only when your `.status.app` is not `claude-code`. Check
+it with:
+
+```bash
+hc get "$HC_TERMINAL_ID" --json | jq -r .status.app
+```
+
+- **Ask the user.** Codex has no question dialog in default mode or Plan mode
+  `[test: probe, codex-cli 0.167.0]`. Write all open questions in one message,
+  in plain text, at the end of your turn. Give a recommendation for each. Make
+  the message stand on its own, as the constitution says for a dialog. Set the
+  decision labels as in "Open decisions". Send your supervisor a one-line
+  notice. Then end your turn. hc shows `done`, not `blocked`, so the label is
+  the signal `[test: probe, approvals_reviewer=auto_review]`. The user's typed
+  answer in your own terminal is the user's own text, also for an approval
+  item. A relayed answer is still not an approval.
+- **Messages.** Use `hc-send <name> "<text>"` for every target, Claude or not.
+  Do not use SendMessage. Claude agents answer to your `from` address. The
+  answer arrives as `<hc from=...>`.
+- **Sandbox.** The Codex sandbox blocks `hc` `[test: probe, hc 0.1.18: "The core
+  could not start because the file system is read-only"]`. Run each `hc`,
+  `hc-send`, `hc-decisions`, and `herdr-app` command with sandbox escalation.
+  Give a short reason, for example "hc message to my supervisor". Do not ask
+  for wider access for other commands because of this rule.
+- **Monitor.** Codex has no background command that wakes you. Do not keep a
+  turn open with a long `hc wait`. End the turn. Child reports and hc notices
+  arrive as `<hc from=...>` messages in your terminal. A short
+  `hc wait <t> --timeout 60` is allowed when you need one result now.
+- **Workers.** The worker type rules stay. Start workers as the rest of this
+  skill says.
+- **Stop.** Send the final report with `hc-send`. Before you end the turn,
+  record your address, your PID, and your session file on the board. Your
+  supervisor then does the Codex stop checks.
+
 ## Before you start
 
 1. Run `test -n "${HC_TERMINAL_ID:-}"`. If it fails, tell the user that you are
@@ -736,8 +772,16 @@ you stop a Codex agent.
    hc get <name> --json | jq -r '.address, .foreground.pid'
    ```
 
-   hc has no field for the Codex session ID. Find the session file by hand in
-   `~/.codex/sessions`, and record its path.
+   hc has no field for the Codex session ID. Find the session file by its
+   launch folder. Use the `cwd` from `hc get <name> --json`. Two Codex agents in
+   one folder can match the wrong file, so check that the start time of the
+   file matches the start of the agent `[test: probe, codex-cli 0.167.0]`:
+
+   ```bash
+   f=$(grep -l -F "<cwd>" $(ls -t ~/.codex/sessions/*/*/*/*.jsonl | head -20) | head -1)
+   ```
+
+   Record the path.
 
 2. After the agent exits, check that the process is gone:
 
@@ -750,7 +794,7 @@ you stop a Codex agent.
 3. Read the size of the session file two times, 60 seconds apart:
 
    ```bash
-   f=<session-file>; stat -f %z "$f"; sleep 60; stat -f %z "$f"
+   wc -c < "$f"; sleep 60; wc -c < "$f"
    ```
 
    If the size increased, the session did not stop.
