@@ -109,3 +109,23 @@ The Codex script stayed unchanged after its successful live test.
 `[test: isolated notify worker, Codex 0.167.0, owner report]`
 
 Focused tests cover the four permission forms and the existing false-positive protections.
+
+The owner reported new isolated tests after the report filter changed.
+These tests used Claude Code 2.1.319 with an empty `--setting-sources` value and separate `--settings`.
+
+- The hook permitted a numbered research report with `stop_hook_active: false`.
+  `[test: isolated research report, Claude Code 2.1.319, owner report]`
+- A separate isolated worker blocked `Should I use the blue option?` and opened `AskUserQuestion`.
+  hc reported `blocked` with kind `question`.
+  `[test: isolated direct question, Claude Code 2.1.319, owner report]`
+
+The tested hook SHA-256 was:
+
+```text
+61bc2d4b3cdc755d5a103e6aefa1b7736c61a39870bb14a4ad5181b2a2456f9e
+```
+
+A live follow-up test did not run because a setup prompt appeared.
+Unit tests cover the new user turn. This case has no live test result.
+`[test: test_continuation_and_new_user_turn, f429755]`
+The payload from the second reported incident remains unknown.
