@@ -20,11 +20,20 @@ plain text at the end of a turn. The dialog keeps the agent `blocked`, kind
 done, and the notice clears when the user looks at the agent. An agent with no
 dialog, or a worker, reports to its owner. The owner asks.
 
+In text for the user, name each agent by its agent name. Do not give the user
+a terminal address or a space ID.
+
 ## 3. Small context
 
 Each level keeps the level above it small. A supervisor holds the order of
 work. An orchestrator holds one goal. A worker holds the code. Send short
 notices. Put long text in a file and give the path.
+
+A name is only for readability. Do not parse a name or a prefix. Find the
+agents of one role with `hc ls --json --label role=<role>`. Read the labels of
+one agent with `hc get <name> --json`. `hc ls --json` does not show labels. The
+old names `hypervisor`, `assistant`, `sup-<repo>`, `orch-<topic>`,
+`work-<task>`, and `<slug>-impl` stay valid until the agent ends.
 
 ## 4. Independence
 

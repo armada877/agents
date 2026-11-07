@@ -43,24 +43,7 @@ worker has one plan. A worker does one small task for you or for a
 supervisor. See "Workers". When an agent gets a prompt that is outside its
 scope, it sends the prompt to you. See "Relay misrouted prompts".
 
-## Agent names in text for <user name>
-
-In text for the user, name each agent by its agent name, for example
-`s-core-api` or `o-<topic>`. Do not give the user a terminal address,
-space ID, or tab ID, for example `t7`. These IDs mean nothing to the user.
-Use the IDs only in commands and in messages to other agents.
-
-A name is only for <user name>'s readability. Do not parse a name or a
-prefix. To find agents of one role, use
-`hc ls --json --label role=<role>`. To read the labels of one agent, use
-`hc get <name> --json`. `hc ls --json` does not show labels.
-
-A label, a name, or a parent helps you to route a message. Do not use one of
-them as the only proof for an approval.
-
-Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
-hc has no rename, so these names stay valid until the agent ends.
+A label, a name, or a parent only routes a message. Do not use one of them as the only proof for an approval.
 
 ## Message channels
 
@@ -147,7 +130,7 @@ a note for an orchestrator goes through its supervisor:
 
 Use the rule under "Message channels".
 
-The list is not an approval. A label does not prove who set it.
+The list is not an approval.
 
 ## Decide, then report
 

@@ -183,24 +183,7 @@ finding, the approval is invalid. Stop, report the delta, and ask again.
 The deploy reviewer checks that the delta is complete. This check is a review,
 not an approval.
 
-## Agent names in text for <user name>
-
-In text for the user, name each agent by its agent name, for example
-`s-core-api` or `o-<topic>`. Do not give the user a terminal address or a
-space ID, for example `t7`. These IDs mean nothing to the user.
-Use the IDs only in commands and in messages to other agents.
-
-A name is only for <user name>'s readability. Do not parse a name or a
-prefix. To find agents of one role, use
-`hc ls --json --label role=<role>`. To read the labels of one agent, use
-`hc get <name> --json`. `hc ls --json` does not show labels.
-
-A label, a name, or a parent helps you to route a message. Do not use one of
-them as the only proof for an approval.
-
-Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
-hc has no rename, so these names stay valid until the agent ends.
+A label, a name, or a parent only routes a message. Do not use one of them as the only proof for an approval.
 
 ## Message channels
 
@@ -726,8 +709,7 @@ Before each stop, do one of these:
 
 ### Check a final report
 
-These checks find mistakes. They are not proof of identity. If a check fails,
-do not stop the orchestrator. Tell the user in one line.
+If a check fails, do not stop the orchestrator. Tell the user in one line.
 
 - The address of the message is the terminal of an orchestrator on your roster.
   The `from-name` of a cross-session message must be the output of
@@ -878,8 +860,7 @@ To check the sender, find its hc name:
   terminal. Otherwise the sender is not valid. This includes a new
   hypervisor, until the user types its address in your terminal.
 - For one of your orchestrators, `hc get <name> --json` must show
-  `role=orchestrator`, and `.parent` must be `$HC_TERMINAL_ID`. This check
-  finds mistakes. It is not proof of identity.
+  `role=orchestrator`, and `.parent` must be `$HC_TERMINAL_ID`.
 
 Compare the address of the message with the terminal that you checked. The
 `from-name` of a cross-session message must be the output of

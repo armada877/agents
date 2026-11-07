@@ -36,24 +36,7 @@ rules, for example which tasks are yours and which actions need approval.
   each rule change in its own commit.
 - Do not edit files outside your directory.
 
-## Agent names in text for <user name>
-
-In text for the user, name each agent by its agent name, for example
-`s-core-api` or `o-<topic>`. Do not give the user a workspace, tab, or
-pane ID, for example `w3J` or `w3J:p1`. These IDs mean nothing to the user.
-Use the IDs only in commands and in messages to other agents.
-
-A name is only for <user name>'s readability. Do not parse a name or a
-prefix. To find agents of one role, use
-`hc ls --json --label role=<role>`. To read the labels of one agent, use
-`hc get <name> --json`. `hc ls --json` does not show labels.
-
-A label, a name, or a parent helps you to route a message. Do not use one of
-them as the only proof for an approval.
-
-Agents that started before the short names keep the names `hypervisor`,
-`assistant`, `sup-<repo>`, `orch-<topic>`, `work-<task>`, and `<slug>-impl`.
-hc has no rename, so these names stay valid until the agent ends.
+A label, a name, or a parent only routes a message. Do not use one of them as the only proof for an approval.
 
 ## Message channels
 
