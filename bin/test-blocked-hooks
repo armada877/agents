@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+import importlib.machinery
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import sys
+import unittest
+from unittest.mock import patch, mock_open
+
+
+def load(name):
+    loader = importlib.machinery.SourceFileLoader(name, str(Path(__file__).with_name(name)))
+    spec = importlib.util.spec_from_loader(name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+sys.dont_write_bytecode = True
+
+stop = load("hc-claude-stop")
+notify = load("hc-codex-notify")
+
+
+def user(text="Continue", **fields):
+    return {"type": "user", "message": {"content": text}, **fields}
+
+
+def tool(name):
+    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name}]}}
+
+
+class StopTests(unittest.TestCase):
+    def decide(self, entries, **fields):
+        with tempfile.NamedTemporaryFile(mode="w") as stream:
+            for entry in entries:
+                stream.write(json.dumps(entry) + "\n")
+            stream.flush()
+            payload = dict(hook_event_name="Stop", stop_hook_active=False, last_assistant_message="Should I continue?", transcript_path=stream.name)
+            payload.update(fields)
+            return stop.decision(payload)
+
+    def test_direct_question(self):
+        self.assertEqual(self.decide([user()])["decision"], "block")
+
+    def test_current_dialog(self):
+        self.assertIsNone(self.decide([user(), tool("AskUserQuestion")]))
+
+    def test_prior_dialog(self):
+        self.assertIsNotNone(self.decide([user(), tool("AskUserQuestion"), user("New task")]))
+
+    def test_tool_result_is_not_boundary(self):
+        result = user([{"type": "tool_result", "content": "answer"}])
+        self.assertIsNone(self.decide([user(), tool("AskUserQuestion"), result]))
+
+    def test_meta_is_not_boundary(self):
+        self.assertIsNone(self.decide([user(), tool("AskUserQuestion"), user(isMeta=True)]))
+        self.assertIsNone(self.decide([user(), tool("AskUserQuestion"), user(isCompactSummary=True)]))
+
+    def test_text_block_boundary(self):
+        self.assertIsNotNone(self.decide([user(), tool("AskUserQuestion"), user([{"type": "text", "text": "New task"}])]))
+
+    def test_tool_messages_do_not_supply_questions(self):
+        self.assertIsNone(self.decide([user(), tool("SendMessage")], last_assistant_message="Done."))
+
+    def test_payload_overrides_transcript(self):
+        entry = {"type": "assistant", "message": {"content": "Done."}}
+        self.assertIsNotNone(self.decide([user(), entry]))
+        self.assertIsNone(self.decide([user()], last_assistant_message=None))
+
+    def test_question_filter(self):
+        for text in ['```text\nShould I continue?\n```', '> Should I continue?', 'The worker asked: "Should I continue?"', '`Should I continue?`', 'The question is whether you agree?', '“Should I continue?”', '~~~\nShould I continue?\n~~~', 'Done.']:
+            with self.subTest(text=text):
+                self.assertFalse(stop.direct_question(text))
+        for text in ['Can you approve this?', 'Which option do you prefer?', 'Done.\nShould I continue?', '- Would you like a test?']:
+            self.assertTrue(stop.direct_question(text))
+
+    def test_two_questions_on_one_line(self):
+        text = "Can you approve this? Should I continue?"
+        self.assertIsNotNone(self.decide([user()], last_assistant_message=text))
+
+    def test_answered_summary_heading(self):
+        for text in ['What changed? The hook now checks dialogs.', '## What changed?\nThe hook now checks dialogs.', '**What changed?**\nThe hook now checks dialogs.', 'What was tested?\nThe focused tests passed.']:
+            with self.subTest(text=text):
+                self.assertIsNone(self.decide([user()], last_assistant_message=text))
+
+    def test_summary_does_not_hide_direct_question(self):
+        text = 'What changed? The hook now checks dialogs. Can you approve this?'
+        self.assertIsNotNone(self.decide([user()], last_assistant_message=text))
+        self.assertTrue(stop.direct_question('What changed?'))
+
+    def test_loader_creates_no_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'probe'
+            path.write_text('value = 1\n')
+            loader = importlib.machinery.SourceFileLoader('probe', str(path))
+            spec = importlib.util.spec_from_loader('probe', loader)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+            self.assertFalse((Path(directory) / '__pycache__').exists())
+
+    def test_direct_permission_questions(self):
+        for text in ['Is that okay?', 'Is it okay if I merge?', 'Does that work for you?', 'Do I have your approval?']:
+            with self.subTest(text=text):
+                self.assertIsNotNone(self.decide([user()], last_assistant_message=text))
+                self.assertIsNone(self.decide([user(), tool('AskUserQuestion')], last_assistant_message=text))
+
+    def test_permission_false_positive_protections(self):
+        for question in ['Is that okay?', 'Is it okay if I merge?', 'Does that work for you?', 'Do I have your approval?']:
+            for text in [f'> {question}', f'`{question}`', f'"{question}"', f'```text\n{question}\n```', f'The worker asked: {question}']:
+                with self.subTest(text=text):
+                    self.assertFalse(stop.direct_question(text))
+
+    def test_loop_limit(self):
+        self.assertIsNone(self.decide([user()], stop_hook_active=True))
+
+    def test_invalid_input(self):
+        for raw in ['{', '[]', 'null', 'x' * (stop.MAX_INPUT + 1)]:
+            with patch.object(stop.sys, 'stdin', io.StringIO(raw)), patch.object(stop.sys, 'stdout', io.StringIO()) as out:
+                self.assertEqual(stop.main(), 0)
+                self.assertEqual(out.getvalue(), '')
+
+    def test_bad_transcript(self):
+        for text in ['invalid', '[]', '']:
+            with tempfile.NamedTemporaryFile(mode='w') as stream:
+                stream.write(text)
+                stream.flush()
+                payload = dict(hook_event_name='Stop', stop_hook_active=False, last_assistant_message='Should I continue?', transcript_path=stream.name)
+                with patch.object(stop.sys, 'stdin', io.StringIO(json.dumps(payload))), patch.object(stop.sys, 'stdout', io.StringIO()) as out:
+                    self.assertEqual(stop.main(), 0)
+                    self.assertEqual(out.getvalue(), '')
+
+    def test_missing_transcript(self):
+        payload = dict(hook_event_name='Stop', stop_hook_active=False, last_assistant_message='Should I continue?', transcript_path='/missing/transcript')
+        with patch.object(stop.sys, 'stdin', io.StringIO(json.dumps(payload))), patch.object(stop.sys, 'stdout', io.StringIO()) as out:
+            self.assertEqual(stop.main(), 0)
+            self.assertEqual(out.getvalue(), '')
+
+    def test_executable_json_output(self):
+        with tempfile.NamedTemporaryFile(mode='w') as stream:
+            stream.write(json.dumps(user()) + '\n')
+            stream.flush()
+            payload = dict(hook_event_name='Stop', stop_hook_active=False, last_assistant_message='Should I continue?', transcript_path=stream.name)
+            result = subprocess.run([str(Path(__file__).with_name('hc-claude-stop'))], input=json.dumps(payload), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout)['decision'], 'block')
+            self.assertEqual(result.stderr, '')
+
+    def test_transcript_limit(self):
+        with patch.object(stop, 'MAX_TRANSCRIPT', 2):
+            with self.assertRaises(ValueError):
+                self.decide([user()])
+
+
+class NotifyTests(unittest.TestCase):
+    def run_notify(self, record, returncode=0, error=None, tty_error=None, env=None):
+        result = subprocess.CompletedProcess([], returncode, json.dumps(record), '')
+        opened = mock_open()
+        if tty_error:
+            opened.side_effect = tty_error
+        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(notify.subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
+            self.assertEqual(notify.main(), 0)
+        return run, opened
+
+    def test_labeled_exact_bytes(self):
+        run, opened = self.run_notify({'labels': {'decision': 'Choose'}})
+        run.assert_called_once_with(['hc', 'get', 'terminal', '--json'], capture_output=True, text=True, timeout=2)
+        opened.assert_called_once_with('/dev/tty', 'wb', buffering=0)
+        opened().write.assert_called_once_with(b'\x1b]7501;state=blocked\x1b\\')
+
+    def test_unlabeled(self):
+        for record in [{}, {'labels': {}}, {'labels': {'decision': ''}}, {'labels': {'decision': '  '}}, {'labels': {'decision': 1}}, [], {'labels': []}]:
+            _, opened = self.run_notify(record)
+            opened.assert_not_called()
+
+    def test_failed_reads(self):
+        for error in [OSError(), subprocess.TimeoutExpired('hc', 2), ValueError()]:
+            _, opened = self.run_notify({}, error=error)
+            opened.assert_not_called()
+        _, opened = self.run_notify({}, returncode=1)
+        opened.assert_not_called()
+
+    def test_invalid_json(self):
+        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'}, clear=True), patch.object(notify.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{', '')), patch('builtins.open') as opened:
+            self.assertEqual(notify.main(), 0)
+            opened.assert_not_called()
+
+    def test_missing_environment(self):
+        run, opened = self.run_notify({}, env={})
+        run.assert_not_called()
+        opened.assert_not_called()
+
+    def test_missing_tty(self):
+        self.run_notify({'labels': {'decision': 'Choose'}}, tty_error=OSError())
+
+
+if __name__ == '__main__':
+    unittest.main()
