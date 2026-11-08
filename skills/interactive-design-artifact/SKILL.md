@@ -13,8 +13,9 @@ description: >-
 
 This skill makes a design page that a reader clicks through. It is the same
 content as the design doc in the repo, shown as pictures and small tools.
-An example is in `references/example-design.html`. It shows a made-up
-"partner passes" design. Read it before you write a new page. Copy its CSS, its helpers, and its section layout.
+An example is in `references/example-design.html`. It shows syn-cli at public commit
+`c1926aaaa74c0da9143cddf140ed6ba019decf1b`. The example maps CLI commands,
+SQLite tables, fetch guards, and the documented metadata migration. Read it before you write a new page. Copy its CSS, its helpers, and its section layout.
 
 ## Before you start
 
