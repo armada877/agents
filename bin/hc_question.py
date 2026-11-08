@@ -45,4 +45,3 @@ def direct_question(text):
             if not listed and not in_report and not trailing:
                 return True
     return False
-
