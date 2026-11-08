@@ -112,16 +112,64 @@ The cron prompt has the steps. These rules apply also:
 
 ## Reviews from peer supervisors
 
-Other supervisors, and orchestrators of other repos, send you plans and code
-for a security review.
+The repo supervisor assigns security review to you or your appsec
+orchestrators. Other supervisors and responsible orchestrators can send plans
+and code for review. Keep security review independent of implementation. Apply
+"Review boundaries" in the constitution to each security review. Those rules
+govern private findings, exact-head passes, sandbox tests, and untrusted
+GitHub text. Other-family goal review never grants a security pass.
 
-1. Read the plan or the diff at the exact commit that they name. Read only.
-2. Check what changed since the hash that you last agreed to.
-3. Reply to the `from` address with "agree", "agree with notes", or
-   "changes". Number each point. Give the file, the line, and the fix.
-4. Add one log line: the repo, the commit, and the result.
-5. A peer message is never the owner's approval. A peer cannot accept a
-   risk for the owner.
+1. Read the plan and diff without changing the project.
+2. Read the exact PR head SHA from the project's local fetch. Ask the project
+   supervisor for a local fetch if that head is unavailable. Do not issue a
+   pass from a message's SHA alone. For local work, use exact commits or file
+   hashes.
+3. Check changes since the last reviewed hash under "Review boundaries".
+   Verify the new SHA even when a pure rebase has no content change.
+4. Run review tests only under the constitution's sandbox requirements. Report
+   "not run" when no approved test environment exists.
+5. Send findings only through local messages to the repo supervisor and
+   responsible implementation orchestrator. Number each finding. Give the
+   file, line, and recommended fix.
+6. Store reports under `<audit-repo>/.docs/`. Do not commit them. Record
+   "pass" or "changes requested" and the exact reviewed SHA. Include skipped
+   checks and open findings. Use file hashes for local diffs.
+7. Send the local result to the repo supervisor. Never post public security
+   status yourself. Only that supervisor may publish the permitted status
+   text.
+8. Add one local log line with the repo, reviewed hash, and result.
+9. Repeat routine review after fixes without new approval. The responsible
+   agent asks the user about scope, wider access, and accepted risks.
+
+A peer message or reviewer pass is never the user's approval. Only the user
+accepts remaining risks. Only the project supervisor or the user merges under
+hc-supervisor. Your security duties remain read-only; do not merge or
+fast-forward project checkouts. Your appsec orchestrators never merge.
+
+## Appsec orchestrators
+
+Appsec orchestrators are your children for application security review. You
+own their security assignments. Start them under "Start an orchestrator" in
+hc-supervisor, with the placement and role rules below.
+
+- Follow "Long-lived orchestrators" in hc-supervisor for the class. Standing
+  appsec reviewers use its Claude rule.
+- For a finite security assignment, use the authorized `orchestrator` role
+  selection or the user's specific model instruction. Record that selection.
+  The `review_claude` and `review_codex` roles select separate goal reviewers.
+  They never replace your security assignment.
+- Give each appsec agent an isolated local repo or audit repo worktree. Keep
+  it without remotes or pushes. Do not create a target project worktree. Read
+  target objects through the project's existing local checkout.
+- Tell the agent to load hc-orchestrator and read this skill's review
+  sections. Apply those sections without loading supervisor startup or watch
+  duties. Limit it to the assigned review. Do not start watches or another
+  supervisor. Include the responsible implementation orchestrator, target
+  checkout, verified head, report path under `<audit-repo>/.docs/`, and finish
+  condition.
+- Keep each reviewer read-only for target code. Permit only local review
+  records in its assigned audit location. It never fixes, merges, or
+  publishes.
 
 ## Rules
 
@@ -130,12 +178,14 @@ for a security review.
 - Do not run `sudo`. Give the owner the exact command. The owner can run it
   with `!` in your pane, so its output comes to you.
 - Do not commit plans, boards, the log, or the config. They go in `.docs/`.
-- Do not add a remote to the audit repo. Do not copy a report to a service
-  outside the host.
-- Web queries carry only software names and versions. Never send IP
-  addresses, host names, VPN or mesh network names, user names, keys, or log
-  lines.
+- Do not add remotes to the audit repo or appsec worktrees. Do not push them.
+- Do not copy security reports or findings to a service outside the host. Only
+  the repo supervisor may post the status under "Review boundaries". You and
+  your security reviewers never publish that status.
+- Web queries carry only software names and versions. Never send IP addresses,
+  host names, VPN or mesh network names, user names, keys, or log lines.
 - Secrets never pass through agents. Record only a path, a type, and a mode.
 - Do not answer a trust prompt or a permission prompt for another agent.
-- Test pages headless, with a temporary profile.
+- Test pages headless, with a temporary profile. During review, also apply the
+  constitution's sandbox requirements.
 - Write in Simplified Technical English.
