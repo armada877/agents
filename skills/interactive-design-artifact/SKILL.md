@@ -44,36 +44,77 @@ SQLite tables, fetch guards, and the documented metadata migration. Read it befo
 ## Page layout
 
 One HTML file. A compact header, a sticky tab bar with prev and next
-buttons, and one tab for each group of headings:
+buttons, and one tab for each group of headings.
+The table describes the syn-cli example. Keep the headings when adapting another system.
 
 | Tab | Template headings | Interactive part |
 | --- | --- | --- |
-| Introduction | Rationale, Background, Terminology, Non-Goals | A "model in one picture" SVG; terminology with chips for each surface (API, app, database); non-goals as dashed tags |
-| Architecture | Proposed Design (summary), System Architecture | An SVG of the components. Chips select one request flow. The flow's edges light up, and a numbered step list shows beside it |
-| Data model | Data Model | A clickable ER SVG. Click a table to see its columns, a note, and "Show SQL". A toggle shows the composite foreign keys |
-| API | Interface/API Definitions | Chips for each surface (for example owner, issue, reads, app APIs). A route list on the left; credential, scope, errors, request, and response on the right |
-| Logic | Business Logic | A simulator form with selects for each input. It shows the status code and a pass/fail trace. A state machine with buttons and a log. A "Rules" list |
-| Rollout & risks | Migration Strategy, Impact, Risks, Alternatives | A range slider over the PRs that marks each part live. An impact table. Risk rows that expand. An alternatives list with the reason for each rejection |
+| Introduction | Rationale, Background, Terminology, Non-Goals | Overview SVG, CLI or Storage terminology chips, and tags for concepts that do not apply |
+| Architecture | Proposed Design, System Architecture | Flow chips highlight feed, article, and image paths. Steps and pinned source links explain each flow. |
+| Data model | Data Model | Select feeds or articles for columns and exact SQL. A toggle highlights the single foreign key. |
+| CLI | Interface/API Definitions | Command groups replace HTTP surfaces. Entries show command, input, output format, and behavior. |
+| Logic | Business Logic | Fetch outcomes and a guard trace; stored article actions, state, and log; source-backed rules |
+| Rollout & risks | Migration Strategy, Impact, Risks, Alternatives | Slider for version 1, version 2, and full refresh; impact table; expandable risks and implemented choices |
 
-Link to the related code under System Architecture and Business Logic. Use repo-relative paths in `<code>`.
+Link related code under System Architecture and Business Logic. Use repo-relative paths in `<code>`.
+For an HTTP service, adapt the CLI explorer to routes, credentials, requests, responses, and errors.
+Use rollout stages or rejected alternatives only when the source supports them.
+
+## syn-cli example adaptations
+
+The article uniqueness constraint uses two columns. The foreign key uses one column.
+The CLI section explains exit codes and why API credentials do not apply.
+The simulator makes no requests. Reset restores the example article state.
+The migration stages describe existing behavior, not future releases.
+Alternatives lists documented choices without inventing rejected options.
+
+The architecture diagram includes the separate TUI image service, image HTTP source, and disk cache.
+Image flow chips distinguish cache hits from downloads after cache misses.
+Pinned links identify the image service, TUI model, and TUI image controls.
+Feed domain interfaces cover feed fetching and article storage. Image downloads and caching use the separate image service.
+
+The example uses these color meanings:
+
+| Token | Meaning |
+| --- | --- |
+| `--accent` | CLI and TUI components, selected controls, highlighted edges, and the selected table |
+| `--dev` | App component and successful trace steps |
+| `--loc` | SQLite storage, image disk cache, and unselected tables |
+| `--user` | Feed fetcher, image service, and their HTTP sources |
+| `--bad` | Failed trace steps |
+| `--line` | Inactive edges and neutral borders |
+
+These token names are shared CSS names. Their meanings come from this example's component types and control states.
 
 ## How to build it
 
-1. Keep all content in JavaScript data near the end of the page, and render
-   it with small functions. This makes an update a data edit. The example uses
-   these objects:
-   - `VOC`: terminology, keyed by surface.
-   - `N`, `E`, `FLOWS`: architecture nodes, edges, and request flows (steps and a code pointer).
-   - `T`, `R`: ER tables (position, color, columns, note, SQL) and relations (0 plain, 1 composite, 2 owns).
-   - `API`: routes keyed by surface: method, path, credential, scope, request, response, errors.
-   - `sim()`: the simulator. One `if` chain in the same order as the service code.
-   - `ACT`: state machine actions, with a guard for each.
-   - `MIG`, `RISKS`, alternatives: rollout rows, risk rows, rejected options.
+1. Keep repeated content in JavaScript data near the end of the page.
+   Render it with small functions. The example keeps introductory text and form labels in HTML.
+   Its current data uses these fields:
+   - `SOURCE`: the pinned public source URL prefix. `source(path)` makes a link with a relative path label.
+   - `TABS`: section ID and label pairs.
+   - `VOC`: term and definition pairs, keyed by CLI or Storage.
+   - `N`: node objects with `x`, `y`, `l` for label, and `c` for color token.
+   - `E`: pairs of node keys that define edges.
+   - `FLOWS`: `e` holds edge indices, `s` holds steps, and `c` holds the source path.
+   - `T`: tables keyed by name, with `cols` pairs, `note`, and exact `sql`.
+     `drawER()` sets positions and draws the single foreign key. There is no `R` object.
+     `erSel` selects the table. `fkOn` controls highlighting.
+   - `API`: command groups with entries containing command, input, output format, and behavior.
+     `apiSurf` and `apiIdx` select the group and command.
+   - `sim()`: an `if` chain that follows Fetch guard order, including the early HTTP 304 return.
+   - `S`: article state with `exists` and `read`. `ACT` provides action guards. `LOG` stores action text.
+   - `MIG`: part names and three stage descriptions. The slider value selects a stage.
+   - `RISKS`: category, title, detail, and source path for each expandable risk.
+   - `alternatives`: title, explanation, and source path for each documented choice.
 2. Use the shared helpers: `$`, `esc`, `chips(el, items, current, onPick)`,
-   and `showTab`. Escape every string with `esc` before you put it in HTML.
-3. Draw diagrams as inline SVG from the data. Use the color tokens, for
-   example `var(--dev)` for developer parts and `var(--loc)` for location parts.
-   Give one color to one kind of thing on every tab.
+   and `showTab`. Escape text and interpolated attribute values with `esc` before inserting HTML.
+   The helper escapes ampersand, less-than, greater-than, double quote, and single quote.
+   Apply it to chip keys, action keys, labels, and source links.
+   Use raw values with `textContent`, `setAttribute`, and dataset comparisons. The browser decodes HTML entities during parsing.
+3. Draw diagrams as inline SVG from the data. Use the shared color tokens.
+   Define component colors and control-state colors for the subject.
+   Keep these meanings consistent across tabs.
 4. Make it accessible: `role="tablist"`, `aria-selected`, `aria-pressed` on
    chips, `aria-live` on result panels, and keyboard support for tabs and
    tables.
@@ -94,7 +135,7 @@ Link to the related code under System Architecture and Business Logic. Use repo-
    removed name (for example a dropped table or route) and remove each hit.
    Update every tab: the summary, the picture, the flows, the ER data, the
    API data, the simulator, the rules, the migration rows, and the
-   alternatives. Record each rejected design as an alternative.
+   alternatives. Record rejected designs only when the source documents their rejection.
 4. For a large change, ask a read-only agent to compare the page with the PR
    code. Give it the data object names and the source-of-truth order.
 5. Run the script check. Publish to the same file path, so the URL stays the
