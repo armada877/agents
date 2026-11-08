@@ -4,27 +4,54 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hc_question import direct_question
 
 
 BLOCKED = b"\x1b]7501;state=blocked\x1b\\"
+
+
+def question_pending():
+    if len(sys.argv) != 2:
+        return False
+    try:
+        payload = json.loads(sys.argv[1])
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(payload, dict) or payload.get("type") != "agent-turn-complete":
+        return False
+    text = payload.get("last-assistant-message")
+    return isinstance(text, str) and direct_question(text)
+
+
+def decision_pending(terminal):
+    try:
+        result = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=2)
+        if result.returncode:
+            return False
+        record = json.loads(result.stdout)
+        labels = record.get("labels") if isinstance(record, dict) else None
+        label = labels.get("decision") if isinstance(labels, dict) else None
+        return isinstance(label, str) and bool(label.strip())
+    except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
+        return False
 
 
 def main():
     terminal = os.environ.get("HC_TERMINAL_ID")
     if not terminal:
         return 0
+    labeled = decision_pending(terminal)
+    if not question_pending() and not labeled:
+        return 0
     try:
-        result = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=2)
-        if result.returncode:
-            return 0
-        record = json.loads(result.stdout)
-        labels = record.get("labels") if isinstance(record, dict) else None
-        label = labels.get("decision") if isinstance(labels, dict) else None
-        if not isinstance(label, str) or not label.strip():
-            return 0
         with open("/dev/tty", "wb", buffering=0) as stream:
             stream.write(BLOCKED)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+    except OSError:
         pass
     return 0
 
