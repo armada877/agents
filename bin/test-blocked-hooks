@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import sys
 import unittest
 from unittest.mock import patch, mock_open
@@ -44,6 +45,45 @@ class StopTests(unittest.TestCase):
             payload = dict(hook_event_name="Stop", stop_hook_active=False, last_assistant_message="Should I continue?", transcript_path=stream.name)
             payload.update(fields)
             return stop.decision(payload)
+
+    def test_large_adversarial_messages(self):
+        for text in ["?" * (1024 * 1024), "a?" * (512 * 1024)]:
+            with self.subTest(prefix=text[:2]):
+                started = time.perf_counter()
+                self.assertFalse(stop.direct_question(text))
+                self.assertLess(time.perf_counter() - started, 1.0)
+
+    def test_separator_free_line(self):
+        text = "a" * (128 * 1024)
+        started = time.perf_counter()
+        self.assertFalse(stop.direct_question(text))
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+    def test_large_message_window(self):
+        self.assertTrue(stop.direct_question("x" * (1024 * 1024) + ". Should I continue?"))
+        self.assertFalse(stop.direct_question("Should I continue?" + "." * 8192))
+        self.assertFalse(stop.direct_question("Should I continue?" + "é" * 4096))
+
+    def test_unicode_window_boundary(self):
+        question = "Should I continue?"
+        for character in ["é", "€", "😀"]:
+            for retained_bytes in range(1, len(character.encode("utf-8"))):
+                suffix = question + "." * (8192 - retained_bytes - len(question))
+                text = "x" * 8192 + character + suffix
+                with self.subTest(character=character, retained_bytes=retained_bytes):
+                    self.assertTrue(stop.direct_question(text))
+        self.assertTrue(stop.direct_question("😀" * 8192 + ". Should I continue?"))
+
+    def test_suffix_markers(self):
+        for suffix in ["", "  ", "**", " * * ", " _**_ ", "\n** \n"]:
+            with self.subTest(suffix=suffix):
+                self.assertTrue(stop.direct_question("Which option works?" + suffix))
+        for suffix in [" * text * ", " * * * ", " ? "]:
+            with self.subTest(suffix=suffix):
+                self.assertFalse(stop.direct_question("Which option works?" + suffix))
+        for suffix, expected in [(" *# answer", False), (" # * answer", False), (" *# ?", False), (" ** ", True)]:
+            with self.subTest(suffix=suffix):
+                self.assertEqual(stop.direct_question("What changed?" + suffix), expected)
 
     def test_direct_question(self):
         self.assertEqual(self.decide([user()])["decision"], "block")
@@ -292,9 +332,92 @@ class NotifyTests(unittest.TestCase):
                     self.assertEqual(result.stdout, "")
             self.assertFalse((root / "__pycache__").exists())
 
+    def test_unavailable_question_module(self):
+        probe = """
+import io
+import json
+import os
+import runpy
+import subprocess
+import sys
+from unittest.mock import mock_open, patch
+
+script, labeled = sys.argv[1:]
+module = runpy.run_path(script)
+assert module["direct_question"] is None
+record = {"labels": {"decision": "Choose" if labeled == "yes" else ""}}
+result = subprocess.CompletedProcess([], 0, json.dumps(record), "")
+opened = mock_open()
+payload = {"type": "agent-turn-complete", "last-assistant-message": "Should I continue?"}
+with patch.dict(os.environ, {"HC_TERMINAL_ID": "terminal"}, clear=True), patch.object(sys, "argv", [script, json.dumps(payload)]), patch.object(subprocess, "run", return_value=result) as run, patch("builtins.open", opened):
+    assert module["main"]() == 0
+run.assert_called_once_with(["/usr/bin/hc", "get", "terminal", "--json"], capture_output=True, text=True, timeout=2)
+if labeled == "yes":
+    opened.assert_called_once_with("/dev/tty", "wb", buffering=0)
+    opened().write.assert_called_once_with(b"\\x1b]7501;state=blocked\\x1b\\\\")
+else:
+    opened.assert_not_called()
+"""
+        for source in [None, "def broken(:\n", "raise RuntimeError('broken module')\n"]:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if source is not None:
+                    (root / "hc_question.py").write_text(source)
+                for name in ["hc-claude-stop", "hc-codex-notify"]:
+                    script = root / name
+                    script.write_bytes(Path(__file__).with_name(name).read_bytes())
+                    script.chmod(0o755)
+                    payload = dict(hook_event_name="Stop", stop_hook_active=False,
+                                   last_assistant_message="Should I continue?", transcript_path="/missing/transcript")
+                    result = subprocess.run(
+                        [str(script), self.payload()], input=json.dumps(payload),
+                        capture_output=True, text=True, start_new_session=True,
+                        env={"HC_TERMINAL_ID": "terminal"}, timeout=5,
+                    )
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+                for labeled in ["yes", "no"]:
+                    result = subprocess.run(
+                        ["/usr/bin/python3", "-I", "-c", probe, str(root / "hc-codex-notify"), labeled],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_fixed_executable_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "selected-from-path"
+            for name in ["python3", "hc"]:
+                fake = root / name
+                fake.write_text(f"#!/bin/sh\nprintf selected > '{marker}'\nexit 99\n")
+                fake.chmod(0o755)
+            transcript = root / "transcript"
+            transcript.write_text(json.dumps(user()) + "\n")
+            payload = dict(hook_event_name="Stop", stop_hook_active=False,
+                           last_assistant_message="Should I continue?", transcript_path=str(transcript))
+            for name in ["hc-claude-stop", "hc-codex-notify"]:
+                script = Path(__file__).resolve().with_name(name)
+                self.assertEqual(script.read_text().splitlines()[0], "#!/usr/bin/python3")
+                result = subprocess.run(
+                    [str(script), self.payload()], input=json.dumps(payload),
+                    capture_output=True, text=True, start_new_session=True,
+                    env={**os.environ, "PATH": str(root), "HC_TERMINAL_ID": "terminal"},
+                    timeout=5,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stderr, "")
+                if name == "hc-claude-stop":
+                    self.assertEqual(json.loads(result.stdout)["decision"], "block")
+                else:
+                    self.assertEqual(result.stdout, "")
+            self.assertFalse(marker.exists())
+
+    def test_unpaired_surrogate(self):
+        _, opened = self.run_notify({}, args=[self.payload("\ud800. Should I continue?")])
+        opened().write.assert_called_once_with(notify.BLOCKED)
+
     def test_labeled_exact_bytes(self):
         run, opened = self.run_notify({'labels': {'decision': 'Choose'}})
-        run.assert_called_once_with(['hc', 'get', 'terminal', '--json'], capture_output=True, text=True, timeout=2)
+        run.assert_called_once_with(['/usr/bin/hc', 'get', 'terminal', '--json'], capture_output=True, text=True, timeout=2)
         opened.assert_called_once_with('/dev/tty', 'wb', buffering=0)
         opened().write.assert_called_once_with(b'\x1b]7501;state=blocked\x1b\\')
 
