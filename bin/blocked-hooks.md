@@ -1,6 +1,7 @@
 # Keep questions visible
 
-These programs require Python 3. They do not change settings.
+Both hooks use `/usr/bin/python3`. They do not search `PATH` for Python.
+These programs do not change settings.
 
 ## Claude Stop
 
@@ -13,8 +14,22 @@ A user entry with text starts a turn. Tool results, `isMeta`, and `isCompactSumm
 Only assistant `tool_use` blocks count as calls. `SendMessage` inputs do not count.
 One current-turn dialog permits Stop, even if the final text contains another question.
 
-Both programs import the unchanged question filter from `hc_question.py`, beside the scripts.
+Both programs import the shared question filter from `hc_question.py`, beside the scripts.
 They resolve script symlinks before importing it. Keep this module beside the script targets.
+A missing or broken module disables question detection without error output.
+The Codex hook still checks decision labels when the module cannot load.
+The filter keeps only the last 8192 UTF-8 bytes before it removes quotes or checks questions.
+It first selects the last 8192 characters, then encodes only those characters.
+It discards an incomplete UTF-8 character at the start of the byte window.
+It replaces unpaired Unicode surrogates during encoding.
+It computes suffix indices once for summary answers and trailing content.
+Sentence matches start only at the window start or after a sentence separator.
+The sentence scan takes linear time within the window. It computes list context once for each line.
+Questions outside this window cannot match.
+Truncation can remove an opening quote, code fence, list marker, or reported section heading.
+This loss of context can cause incorrect matches or hide a question.
+The byte limit bounds filter work. It does not bound JSON parsing or label output.
+
 The filter detects English questions that start with selected question words.
 It accepts `can`, `could`, `would`, `will`, `do`, `did`, `are`, or `have`, followed by `you`.
 It also accepts `should`, `shall`, `may`, or `can`, followed by `I`.
@@ -71,7 +86,7 @@ Codex 0.167.0 supplied this contract during an isolated capture test.
 Other fields do not affect the check.
 Missing arguments, extra arguments, malformed JSON, wrong events, and invalid field types disable the question check.
 
-The program reads `HC_TERMINAL_ID`. It runs `hc get` with `--json` and a two-second timeout.
+The program reads `HC_TERMINAL_ID`. It runs `/usr/bin/hc get` with `--json` and a two-second timeout.
 A nonempty string in `labels.decision` or a direct question causes one write to `/dev/tty`.
 The shared filter checks the final message. It does not read a transcript.
 A failed label read does not disable the question check.
@@ -81,7 +96,8 @@ No other label affects the result. The program does not clear labels or report `
 
 Missing `HC_TERMINAL_ID` or an unavailable tty produces no output.
 Without a matching question, absent labels, whitespace labels, invalid label JSON, and failed commands produce no output.
-A missing `hc` program disables only the label check.
+A missing `/usr/bin/hc` program disables only the label check.
+The hooks do not support alternate executable locations through `PATH`.
 The program always exits successfully for these cases.
 An installed notify program is required for this status change.
 The surrounding terminal must support OSC 7501.
@@ -91,6 +107,11 @@ This fallback writes no labels and does not open a question dialog.
 ## Checks
 
 Run `bin/test-blocked-hooks` for the focused tests.
+Tests require each filter call on one MiB of question marks or repeated `a?` text to finish within one second.
+A 128 KiB line without sentence separators must also finish within one second.
+Tests cover the byte window, Unicode boundaries, and fake executables in `PATH`.
+Tests check silent success for missing modules, syntax errors, and errors during module execution.
+They also check decision labels when question detection cannot load.
 The test loader disables bytecode writes. It creates no `__pycache__` files.
 Run live tests in isolated workers before installation.
 
