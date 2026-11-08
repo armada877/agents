@@ -208,14 +208,89 @@ class StopTests(unittest.TestCase):
 
 
 class NotifyTests(unittest.TestCase):
-    def run_notify(self, record, returncode=0, error=None, tty_error=None, env=None):
+    def run_notify(self, record, returncode=0, error=None, tty_error=None, env=None, args=None):
         result = subprocess.CompletedProcess([], returncode, json.dumps(record), '')
         opened = mock_open()
         if tty_error:
             opened.side_effect = tty_error
-        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(notify.subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
+        with patch.object(notify.sys, 'argv', ['hc-codex-notify'] + (args or [])), patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(notify.subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
             self.assertEqual(notify.main(), 0)
         return run, opened
+
+    def payload(self, text="Should I continue?", **fields):
+        return json.dumps({"type": "agent-turn-complete", "last-assistant-message": text, **fields})
+
+    def test_shared_filter(self):
+        self.assertIs(notify.direct_question, stop.direct_question)
+
+    def test_question_only(self):
+        for text in ["Should I continue?", "Is that okay?", "Which option works?"]:
+            with self.subTest(text=text):
+                _, opened = self.run_notify({}, args=[self.payload(text)])
+                opened().write.assert_called_once_with(notify.BLOCKED)
+
+    def test_question_with_failed_label_read(self):
+        for error in [OSError(), subprocess.TimeoutExpired("hc", 2), ValueError()]:
+            with self.subTest(error=error):
+                _, opened = self.run_notify({}, error=error, args=[self.payload()])
+                opened().write.assert_called_once_with(notify.BLOCKED)
+        _, opened = self.run_notify({}, returncode=1, args=[self.payload()])
+        opened().write.assert_called_once_with(notify.BLOCKED)
+
+    def test_non_question(self):
+        for text in ["Done.", '"Should I continue?"', "Research questions:\n1. What does the service return?"]:
+            with self.subTest(text=text):
+                _, opened = self.run_notify({}, args=[self.payload(text)])
+                opened.assert_not_called()
+
+    def test_invalid_payloads(self):
+        payloads = [
+            "{", "null", "[]", "true", "42", '""', "{}",
+            json.dumps({"type": "agent-turn-complete"}),
+            json.dumps({"last-assistant-message": "Should I continue?"}),
+            self.payload(type="other"), self.payload(type=None),
+            self.payload(type=[]), self.payload(type={}),
+            self.payload(None), self.payload(1), self.payload(True),
+            self.payload([]), self.payload({}),
+        ]
+        for args in [[], [self.payload(), self.payload()]] + [[raw] for raw in payloads]:
+            with self.subTest(args=args):
+                _, opened = self.run_notify({}, args=args)
+                opened.assert_not_called()
+                _, opened = self.run_notify({"labels": {"decision": "Choose"}}, args=args)
+                opened().write.assert_called_once_with(notify.BLOCKED)
+
+    def test_question_without_terminal(self):
+        run, opened = self.run_notify({}, env={}, args=[self.payload()])
+        run.assert_not_called()
+        opened.assert_not_called()
+
+    def test_question_without_tty(self):
+        self.run_notify({}, tty_error=OSError(), args=[self.payload()])
+
+    def test_symlink_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transcript = root / "transcript"
+            transcript.write_text(json.dumps(user()) + "\n")
+            payload = dict(hook_event_name="Stop", stop_hook_active=False,
+                           last_assistant_message="Should I continue?", transcript_path=str(transcript))
+            for name in ["hc-claude-stop", "hc-codex-notify"]:
+                link = root / name
+                link.symlink_to(Path(__file__).resolve().with_name(name))
+                result = subprocess.run(
+                    [sys.executable, str(link), self.payload()],
+                    input=json.dumps(payload), capture_output=True, text=True,
+                    env={**os.environ, "HC_TERMINAL_ID": "terminal", "PATH": ""},
+                    start_new_session=True,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stderr, "")
+                if name == "hc-claude-stop":
+                    self.assertEqual(json.loads(result.stdout)["decision"], "block")
+                else:
+                    self.assertEqual(result.stdout, "")
+            self.assertFalse((root / "__pycache__").exists())
 
     def test_labeled_exact_bytes(self):
         run, opened = self.run_notify({'labels': {'decision': 'Choose'}})

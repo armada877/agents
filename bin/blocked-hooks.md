@@ -13,6 +13,8 @@ A user entry with text starts a turn. Tool results, `isMeta`, and `isCompactSumm
 Only assistant `tool_use` blocks count as calls. `SendMessage` inputs do not count.
 One current-turn dialog permits Stop, even if the final text contains another question.
 
+Both programs import the unchanged question filter from `hc_question.py`, beside the scripts.
+They resolve script symlinks before importing it. Keep this module beside the script targets.
 The filter detects English questions that start with selected question words.
 It accepts `can`, `could`, `would`, `will`, `do`, `did`, `are`, or `have`, followed by `you`.
 It also accepts `should`, `shall`, `may`, or `can`, followed by `I`.
@@ -62,18 +64,29 @@ The [official hook reference](https://code.claude.com/docs/en/hooks#stop) define
 
 Set Codex `notify` to an array that contains the absolute path to `hc-codex-notify`.
 Install this only where no other notify program needs preservation, or use a wrapper for both programs.
-Notify arguments do not affect this program.
+Codex supplies one JSON argument. The question check requires an object with `type: agent-turn-complete`.
+The `last-assistant-message` field must contain a string.
+Codex 0.167.0 supplied this contract during an isolated capture test.
+`[test: isolated notify payload capture, Codex 0.167.0, owner report]`
+Other fields do not affect the check.
+Missing arguments, extra arguments, malformed JSON, wrong events, and invalid field types disable the question check.
 
 The program reads `HC_TERMINAL_ID`. It runs `hc get` with `--json` and a two-second timeout.
-A nonempty string in `labels.decision` causes one write to `/dev/tty`.
+A nonempty string in `labels.decision` or a direct question causes one write to `/dev/tty`.
+The shared filter checks the final message. It does not read a transcript.
+A failed label read does not disable the question check.
+Invalid notify input does not disable the existing label check.
 The bytes are `ESC ] 7501 ; state=blocked ESC \`, without spaces or a newline.
 No other label affects the result. The program does not clear labels or report `done`.
 
-Missing environment, absent labels, whitespace labels, invalid JSON, failed commands, and missing terminals produce no output.
-A missing `hc` program or unavailable tty also produces no output.
+Missing `HC_TERMINAL_ID` or an unavailable tty produces no output.
+Without a matching question, absent labels, whitespace labels, invalid label JSON, and failed commands produce no output.
+A missing `hc` program disables only the label check.
 The program always exits successfully for these cases.
 An installed notify program is required for this status change.
 The surrounding terminal must support OSC 7501.
+This fallback writes no labels and does not open a question dialog.
+`hc-decisions` still lists only labeled decisions. It cannot list a question detected only by this fallback.
 
 ## Checks
 
@@ -105,7 +118,7 @@ The tested hook SHA-256 was:
 f30e06c079196c15caf4a551e85f30c079681563247bfe3288e8058ffac8ade4
 ```
 
-The Codex script stayed unchanged after its successful live test.
+The earlier Codex live test covered only labels. It did not test the current question fallback.
 `[test: isolated notify worker, Codex 0.167.0, owner report]`
 
 Focused tests cover the four permission forms and the existing false-positive protections.
@@ -129,3 +142,9 @@ A live follow-up test did not run because a setup prompt appeared.
 Unit tests cover the new user turn. This case has no live test result.
 `[test: test_continuation_and_new_user_turn, f429755]`
 The payload from the second reported incident remains unknown.
+
+The owner tested the question fallback with Codex 0.167.0 and a command-line notify override to the checkout script.
+The question worker ended with `Should I use the blue option?` and emitted an hc `blocked` notice without a decision label.
+A later `Yes` input resumed it before the status read, so this test does not establish a stable blocked duration.
+The control worker ended with `The check is complete.` and hc reported `done` without a decision label.
+`[test: isolated question fallback and control workers, Codex 0.167.0, owner report]`
