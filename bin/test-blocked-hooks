@@ -119,6 +119,56 @@ class StopTests(unittest.TestCase):
     def test_loop_limit(self):
         self.assertIsNone(self.decide([user()], stop_hook_active=True))
 
+    def test_research_questions_in_lists(self):
+        for marker in ['1.', '2)', '-', '*', '+', '-\t']:
+            for heading in ['', 'Research questions:\n']:
+                for ending in ['', '\nThe report is complete.']:
+                    text = f'{heading}{marker} What does the service return?{ending}'
+                    with self.subTest(text=text):
+                        self.assertIsNone(self.decide([user()], last_assistant_message=text))
+
+    def test_generic_questions_before_report_end(self):
+        for text in ['What does the service return?\nThe service returns a result.',
+                     'Which format works? The report contains the answer.',
+                     'How does the service start?\n\nThe report is complete.']:
+            with self.subTest(text=text):
+                self.assertFalse(stop.direct_question(text))
+
+    def test_final_generic_questions(self):
+        for text in ['What is the next step?', 'Done.\nWhich option works?',
+                     'The checks passed.\nWhere should the result go?',
+                     '**How does this work?**']:
+            with self.subTest(text=text):
+                self.assertTrue(stop.direct_question(text))
+
+    def test_reported_contexts(self):
+        for heading in ['Research questions:', 'Reported questions:', 'Questions from the worker:',
+                        'The worker asked:', '## Research questions:', '**Research questions:**']:
+            text = f'{heading}\nWhat does the service return?'
+            with self.subTest(text=text):
+                self.assertFalse(stop.direct_question(text))
+        self.assertTrue(stop.direct_question('Research questions:\nWhat does the service return?\n\nWhat is the next step?'))
+        self.assertTrue(stop.direct_question('## Research questions:\nWhat does the service return?\n## Next step\nWhich option works?'))
+
+    def test_explicit_questions_in_lists_and_reports(self):
+        for question in ['Can you approve this?', 'Should I continue?', 'Which option do you prefer?',
+                         'What is your choice?', 'Is that okay?', 'Is it okay if I merge?',
+                         'Does that work for you?', 'Do I have your approval?']:
+            for marker in ['1.', '2)', '-', '*', '+']:
+                text = f'Research questions:\n{marker} {question}\nThe checks passed.'
+                with self.subTest(text=text):
+                    self.assertTrue(stop.direct_question(text))
+
+    def test_continuation_and_new_user_turn(self):
+        entries = [user()]
+        text = 'Which option works?'
+        self.assertIsNotNone(self.decide(entries, stop_hook_active=False, last_assistant_message=text))
+        self.assertIsNone(self.decide(entries, stop_hook_active=True, last_assistant_message=text))
+        entries.extend([tool('AskUserQuestion'), user('Here is another reply.')])
+        self.assertIsNotNone(self.decide(entries, stop_hook_active=False, last_assistant_message=text))
+        report = 'Research questions:\n1. What does the service return?'
+        self.assertIsNone(self.decide(entries, stop_hook_active=False, last_assistant_message=report))
+
     def test_invalid_input(self):
         for raw in ['{', '[]', 'null', 'x' * (stop.MAX_INPUT + 1)]:
             with patch.object(stop.sys, 'stdin', io.StringIO(raw)), patch.object(stop.sys, 'stdout', io.StringIO()) as out:

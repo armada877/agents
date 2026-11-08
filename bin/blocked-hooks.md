@@ -16,7 +16,20 @@ One current-turn dialog permits Stop, even if the final text contains another qu
 The filter detects English questions that start with selected question words.
 It accepts `can`, `could`, `would`, `will`, `do`, `did`, `are`, or `have`, followed by `you`.
 It also accepts `should`, `shall`, `may`, or `can`, followed by `I`.
-It accepts `which`, `what`, `how`, `where`, and `when`.
+It accepts `which`, `what`, `how`, `where`, and `when` when the question contains `you` or `your`.
+These explicit questions match anywhere, including lists and report sections.
+Other questions with these five words match only at the end of the filtered message.
+They do not match inside Markdown lists or reported sections.
+List markers are `-`, `*`, `+`, and numbers followed by `.` or `)`.
+Reported sections start with a line that ends with one of these forms:
+
+- `Research questions:` or `Reported questions:`
+- `Questions from ...:` or `Questions for ...:`
+- `... asked:` or `... asks:`
+
+These forms ignore case and accept Markdown heading markers or surrounding asterisks.
+A blank line or another Markdown heading ends the reported section.
+Trailing asterisks and underscores do not prevent a final question from matching.
 It also accepts `Is that okay?`, `Does that work for you?`, and `Do I have your approval?`.
 It accepts questions that start with `Is it okay if I`.
 These forms use the same quote, code, and reported-question filters.
@@ -35,6 +48,9 @@ The program does not fall back to transcript text when final text is absent.
 
 A match without a current-turn dialog returns `decision: block` with an instruction to use `AskUserQuestion`.
 The program permits Stop when `stop_hook_active` is true. Thus, it requests at most one continuation per hook chain.
+A new user turn can supply `stop_hook_active: false` and start another check.
+An earlier dialog does not cover that new turn.
+The flag controls the continuation check. The transcript controls the dialog count.
 It cannot guarantee a dialog after that continuation.
 Invalid input, missing files, or invalid transcripts permit Stop without output.
 Input limits are 1 MiB for payload text and 16 MiB for transcript text, measured in characters.
@@ -93,3 +109,23 @@ The Codex script stayed unchanged after its successful live test.
 `[test: isolated notify worker, Codex 0.167.0, owner report]`
 
 Focused tests cover the four permission forms and the existing false-positive protections.
+
+The owner reported new isolated tests after the report filter changed.
+These tests used Claude Code 2.1.319 with an empty `--setting-sources` value and separate `--settings`.
+
+- The hook permitted a numbered research report with `stop_hook_active: false`.
+  `[test: isolated research report, Claude Code 2.1.319, owner report]`
+- A separate isolated worker blocked `Should I use the blue option?` and opened `AskUserQuestion`.
+  hc reported `blocked` with kind `question`.
+  `[test: isolated direct question, Claude Code 2.1.319, owner report]`
+
+The tested hook SHA-256 was:
+
+```text
+61bc2d4b3cdc755d5a103e6aefa1b7736c61a39870bb14a4ad5181b2a2456f9e
+```
+
+A live follow-up test did not run because a setup prompt appeared.
+Unit tests cover the new user turn. This case has no live test result.
+`[test: test_continuation_and_new_user_turn, f429755]`
+The payload from the second reported incident remains unknown.
