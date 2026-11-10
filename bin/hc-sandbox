@@ -6,6 +6,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -28,7 +29,10 @@ HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
 LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
 BUILD_LIMITS = ["--memory", "4g"]
 BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
+OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 BUILD_SCRIPT = (
+    '[ "$(stat -c %i /ctx)" = "$3" ] && [ "$(stat -c %i /out)" = "$4" ] '
+    '|| { echo "hc-sandbox: a mount changed before the build" >&2; exit 90; }; '
     'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
     '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx '
     '&& buildah --storage-driver vfs push hc-sandbox-build oci-archive:/out/image.tar'
@@ -114,10 +118,25 @@ def find_worktree(start):
     raise SandboxError(f"no {CONFIG_FILE} in {start} or its parents")
 
 
-def check_worktree(worktree, home):
+def worktrees_root():
+    return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve() / ".herdr" / "worktrees"
+
+
+def check_worktree(worktree, root):
     require(SAFE_PATH.match(str(worktree)), f"worktree path has characters that Podman mounts cannot use: {worktree}")
-    require(worktree != Path("/") and worktree not in (home, *home.parents),
-            "the worktree must not be the home folder or a parent of it")
+    require(worktree.is_relative_to(root) and len(worktree.relative_to(root).parts) >= 2,
+            f"the worktree must be a folder at least two levels under {root}")
+
+
+def directory_inode(path, dir_fd=None):
+    try:
+        fd = os.open(path, OPEN_DIR, dir_fd=dir_fd)
+    except OSError as error:
+        raise SandboxError(f"cannot open {path} as a folder that is not a link: {error.strerror}") from None
+    try:
+        return os.fstat(fd).st_ino
+    finally:
+        os.close(fd)
 
 
 def load_config(worktree):
@@ -229,12 +248,12 @@ def asset_build_args(kind, tag):
             "--label", f"{LABEL}=1", "--tag", tag, "--file", str(ASSETS / f"{kind}.Containerfile"), str(ASSETS)]
 
 
-def builder_args(sandbox, builder_image, out_dir):
+def builder_args(sandbox, builder_image, out_dir, inodes):
     return ["run", "--rm", "--name", sandbox.builder, *sandbox.labels(), "--network", f"container:{sandbox.egress}",
             "--cap-drop", "all", "--cap-add", BUILDER_CAPS, "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
             "--volume", f"{sandbox.worktree}:/ctx:ro", "--volume", f"{sandbox.store}:{BUILDER_STORE}",
             "--volume", f"{sandbox.cache}:/cache", "--volume", f"{out_dir}:/out",
-            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
+            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile, *inodes]
 
 
 def ensure_volume(name):
@@ -289,16 +308,58 @@ def build(sandbox):
     builder_image = ensure_asset_image("builder")
     ensure_asset_image("browser")
     with tempfile.TemporaryDirectory(prefix="hc-sandbox-") as out_dir, egress_filter(sandbox):
-        podman(*builder_args(sandbox, builder_image, out_dir))
+        inodes = (str(directory_inode(sandbox.worktree)), str(directory_inode(out_dir)))
+        podman(*builder_args(sandbox, builder_image, out_dir, inodes))
         load_image(Path(out_dir) / "image.tar", sandbox.image)
     print(f"hc-sandbox: built {sandbox.image}")
 
 
+def open_child_dir(parent_fd, name):
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(name, 0o755, dir_fd=parent_fd)
+    try:
+        return os.open(name, OPEN_DIR, dir_fd=parent_fd)
+    except OSError as error:
+        raise SandboxError(f"{name} must be a folder, not a link: {error.strerror}") from None
+
+
+def write_new_file(dir_fd, name, text):
+    try:
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dir_fd)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+
+
 def ensure_out_dir(sandbox):
-    state = sandbox.worktree / STATE_DIR
-    require(not state.is_symlink() and not sandbox.out.is_symlink(), f"{STATE_DIR} must not be a symlink")
-    sandbox.out.mkdir(parents=True, exist_ok=True)
-    (state / ".gitignore").write_text("*\n")
+    worktree_fd = os.open(sandbox.worktree, OPEN_DIR)
+    try:
+        state_fd = open_child_dir(worktree_fd, STATE_DIR)
+        try:
+            write_new_file(state_fd, ".gitignore", "*\n")
+            out_fd = open_child_dir(state_fd, "out")
+            try:
+                return os.fstat(out_fd).st_ino
+            finally:
+                os.close(out_fd)
+        finally:
+            os.close(state_fd)
+    finally:
+        os.close(worktree_fd)
+
+
+def mount_inode(container, path):
+    result = podman("exec", container, "stat", "-c", "%i", path, capture=True, check=False)
+    return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else None
+
+
+def check_mounts(sandbox, worktree_inode, out_inode):
+    same = (mount_inode(sandbox.browser, "/work") == worktree_inode
+            and mount_inode(sandbox.browser, "/out") == out_inode)
+    if not same:
+        down(sandbox, announce=False)
+        raise SandboxError("a mount changed while the pod started")
 
 
 def published_port(sandbox):
@@ -336,7 +397,8 @@ def up(sandbox, publish):
     require(not publish or sandbox.config.port, "--publish needs a port in the config")
     down(sandbox, announce=False)
     ensure_volume(sandbox.cache)
-    ensure_out_dir(sandbox)
+    worktree_inode = directory_inode(sandbox.worktree)
+    out_inode = ensure_out_dir(sandbox)
     podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
     ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []
     podman("pod", "create", "--name", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
@@ -344,7 +406,9 @@ def up(sandbox, publish):
            "--volume", f"{sandbox.worktree}:/work:ro", "--volume", f"{sandbox.cache}:/cache",
            sandbox.image, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
-           *LIMITS, "--volume", f"{sandbox.out}:/out", "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
+           *LIMITS, "--volume", f"{sandbox.worktree}:/work:ro", "--volume", f"{sandbox.out}:/out",
+           "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
+    check_mounts(sandbox, worktree_inode, out_inode)
     if sandbox.config.port:
         ready = wait_until(lambda: app_ready(sandbox) or not app_running(sandbox), sandbox.config.ready_timeout)
         require(ready and app_running(sandbox), "the app did not answer on its port: run hc-sandbox logs")
@@ -428,7 +492,7 @@ def run(args):
     if args.command == "ls":
         return list_sandboxes()
     worktree = find_worktree(Path(args.directory).resolve())
-    check_worktree(worktree, Path.home().resolve())
+    check_worktree(worktree, worktrees_root())
     sandbox = Sandbox(worktree, load_config(worktree))
     if args.command == "build":
         build(sandbox)

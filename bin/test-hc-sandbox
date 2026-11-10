@@ -26,6 +26,12 @@ loader.exec_module(module)
 
 EXAMPLE = BIN.parent / "examples" / "sandbox-hello"
 E2E = os.environ.get("HC_SANDBOX_E2E") == "1"
+E2E_ROOT = module.worktrees_root() / "hc-sandbox-test"
+
+
+def e2e_directory():
+    E2E_ROOT.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=E2E_ROOT)
 CANARY = "HC_SANDBOX_CANARY"
 CANARY_BODY = "hc-sandbox-canary-7f3a"
 
@@ -91,19 +97,78 @@ class ConfigTests(unittest.TestCase):
 
 
 class WorktreeTests(unittest.TestCase):
-    def test_home_and_parents_are_refused(self):
-        home = Path("/home/user")
-        for path in (home, Path("/home"), Path("/")):
+    root = Path("/home/user/.herdr/worktrees")
+
+    def test_only_folders_under_the_worktrees_root(self):
+        for path in ("/home/user", "/home/user/.ssh", "/home/user/.config/hey", "/run/user/1000",
+                     "/home/user/.herdr/worktrees", "/home/user/.herdr/worktrees/repo", "/"):
             with self.subTest(path=path), self.assertRaises(module.SandboxError):
-                module.check_worktree(path, home)
+                module.check_worktree(Path(path), self.root)
 
     def test_path_with_mount_separators_is_refused(self):
-        for path in ("/tmp/a:b", "/tmp/a,b", "/tmp/a b"):
-            with self.subTest(path=path), self.assertRaises(module.SandboxError):
-                module.check_worktree(Path(path), Path("/home/user"))
+        for name in ("a:b", "a,b", "a b"):
+            with self.subTest(name=name), self.assertRaises(module.SandboxError):
+                module.check_worktree(self.root / "repo" / name, self.root)
 
-    def test_project_folder_is_allowed(self):
-        module.check_worktree(Path("/home/user/src/app"), Path("/home/user"))
+    def test_worktree_is_allowed(self):
+        module.check_worktree(self.root / "repo" / "topic", self.root)
+
+    def test_root_ignores_the_home_variable(self):
+        with unittest.mock.patch.dict(os.environ, {"HOME": "/home/user/.ssh"}):
+            self.assertNotIn(".ssh", str(module.worktrees_root()))
+
+
+class CommandTests(unittest.TestCase):
+    def test_config_outside_the_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "Containerfile").write_text("FROM scratch\n")
+            Path(directory, "hc-sandbox.toml").write_text('name = "outside"\n')
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                code = module.main(["-C", directory, "build"])
+        self.assertEqual(code, 2)
+        self.assertIn("two levels under", error.getvalue())
+
+
+class OutDirTests(unittest.TestCase):
+    def sandbox_in(self, directory):
+        return module.Sandbox(Path(directory), module.parse_config({"name": "app"}))
+
+    def test_gitignore_link_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("keep")
+            worktree = Path(directory) / "w"
+            (worktree / module.STATE_DIR).mkdir(parents=True)
+            (worktree / module.STATE_DIR / ".gitignore").symlink_to(outside)
+            module.ensure_out_dir(self.sandbox_in(worktree))
+            self.assertEqual(outside.read_text(), "keep")
+
+    def test_gitignore_hard_link_is_not_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("keep")
+            worktree = Path(directory) / "w"
+            (worktree / module.STATE_DIR).mkdir(parents=True)
+            os.link(outside, worktree / module.STATE_DIR / ".gitignore")
+            module.ensure_out_dir(self.sandbox_in(worktree))
+            self.assertEqual(outside.read_text(), "keep")
+
+    def test_linked_state_folders_are_refused(self):
+        for linked in (module.STATE_DIR, f"{module.STATE_DIR}/out"):
+            with self.subTest(linked=linked), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "target"
+                target.mkdir()
+                worktree = Path(directory) / "w"
+                (worktree / linked).parent.mkdir(parents=True, exist_ok=True)
+                (worktree / linked).symlink_to(target)
+                with self.assertRaises(module.SandboxError):
+                    module.ensure_out_dir(self.sandbox_in(worktree))
+                self.assertEqual(list(target.iterdir()), [])
+
+    def test_new_gitignore_is_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            module.ensure_out_dir(self.sandbox_in(directory))
+            self.assertEqual((Path(directory) / module.STATE_DIR / ".gitignore").read_text(), "*\n")
 
 
 class ArgumentTests(unittest.TestCase):
@@ -119,13 +184,13 @@ class ArgumentTests(unittest.TestCase):
 
     def test_project_build_runs_in_the_egress_network(self):
         sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
-        args = module.builder_args(sandbox, "builder", "/tmp/out")
+        args = module.builder_args(sandbox, "builder", "/tmp/out", ("11", "22"))
         self.assertEqual(args[args.index("--network") + 1], f"container:{sandbox.egress}")
         self.assertEqual(args[args.index("--cap-drop") + 1], "all")
         self.assertNotIn("NET_ADMIN", args[args.index("--cap-add") + 1])
         self.assertIn("no-new-privileges", args)
         self.assertIn("/w:/ctx:ro", args)
-        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
+        self.assertEqual(args[-4:], [module.STEP_CAPS, "Containerfile", "11", "22"])
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
 
     def test_asset_build_uses_repo_files_only(self):
@@ -191,7 +256,7 @@ def probe_states(output):
 @unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
 class ExampleEndToEnd(unittest.TestCase):
     def test_build_up_test(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with e2e_directory() as directory:
             worktree = Path(directory) / "hello"
             shutil.copytree(EXAMPLE, worktree, ignore=shutil.ignore_patterns(".hc-sandbox"))
             try:
@@ -206,7 +271,7 @@ class ExampleEndToEnd(unittest.TestCase):
 @unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
 class BuildEscapeTests(unittest.TestCase):
     def build_output(self, containerfile):
-        with tempfile.TemporaryDirectory() as directory:
+        with e2e_directory() as directory:
             worktree = Path(directory) / "build-escape"
             worktree.mkdir()
             (worktree / "Containerfile").write_text(containerfile)
@@ -232,7 +297,7 @@ class BuildEscapeTests(unittest.TestCase):
 class EscapeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.directory = tempfile.TemporaryDirectory()
+        cls.directory = e2e_directory()
         cls.worktree = Path(cls.directory.name) / "escape"
         cls.worktree.mkdir()
         cls.listener = host_listener()

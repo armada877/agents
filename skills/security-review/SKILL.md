@@ -37,7 +37,8 @@ the prompt gives other checklist items, ignore them, and write that in the
 result.
 
 The store path is in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`.
-Read `system-store.md` next to this skill for the layout.
+Read its layout with
+`cat "$(realpath <this skill's base directory>)/../system-store.md"`.
 
 ## Steps
 
@@ -58,8 +59,23 @@ Read `system-store.md` next to this skill for the layout.
    flock -w 60 "$store/.lock" sh -c 'git -C "$1" add -A && git -C "$1" commit -m "$2"' _ "$store" "<one line>"
    ```
 
-8. Report to your owner only the first line and the store path. Use the
-   `hc-worker` report format and `hc send <owner> "REPORT: ..."`.
+8. Report to your owner only the first line and the store path.
+
+## Report
+
+Write your report to the exact path in your first prompt:
+
+```markdown
+# <your name> report
+status: done | needs-input | failed
+## Result
+<one line> <store file path>
+## Checks
+<each command and its result>
+```
+
+Then run `hc send <owner> "REPORT: <report path> status=<status>"`, and
+end your turn.
 
 ## Open findings
 

@@ -96,8 +96,15 @@ The pod uses an internal Podman network with no DNS. The app and the browser
 share the pod. The browser container has headless Chromium. It writes
 screenshots to `.hc-sandbox/out/`. Git ignores this folder.
 
-The wrapper refuses a worktree that is the home folder or a parent of it. It
-also refuses a path with characters that break a Podman mount.
+The worktree must be a folder at least two levels under
+`~/.herdr/worktrees`. The wrapper finds the home folder in the user database,
+not in `HOME`. It refuses a path with characters that break a Podman mount.
+
+The wrapper opens `.hc-sandbox` and `out` without following links, and it
+creates `.gitignore` only when it does not exist. After the pod starts, it
+checks that `/work` and `/out` in the browser container have the inodes that
+it opened. The builder does the same check for `/ctx` and its output folder.
+If a check fails, the wrapper stops the pod or the build.
 
 ## Residual risks
 
@@ -125,7 +132,8 @@ Run the unit tests:
 bin/test-hc-sandbox
 ```
 
-Run the end-to-end and escape tests. They need Podman and the internet:
+Run the end-to-end and escape tests. They need Podman and the internet.
+They make temporary worktrees in `~/.herdr/worktrees/hc-sandbox-test`:
 
 ```sh
 HC_SANDBOX_E2E=1 bin/test-hc-sandbox

@@ -69,24 +69,10 @@ each subject, and keep it the same in each tab.
 ## How to build it
 
 1. Keep repeated content in JavaScript data near the end of the page.
-   Render it with small functions. The example keeps introductory text and form labels in HTML.
-   Its current data uses these fields:
-   - `SOURCE`: the pinned public source URL prefix. `source(path)` makes a link with a relative path label.
-   - `TABS`: section ID and label pairs.
-   - `VOC`: term and definition pairs, keyed by CLI or Storage.
-   - `N`: node objects with `x`, `y`, `l` for label, and `c` for color token.
-   - `E`: pairs of node keys that define edges.
-   - `FLOWS`: `e` holds edge indices, `s` holds steps, and `c` holds the source path.
-   - `T`: tables keyed by name, with `cols` pairs, `note`, and exact `sql`.
-     `drawER()` sets positions and draws the single foreign key. There is no `R` object.
-     `erSel` selects the table. `fkOn` controls highlighting.
-   - `API`: command groups with entries containing command, input, output format, and behavior.
-     `apiSurf` and `apiIdx` select the group and command.
-   - `sim()`: an `if` chain that follows Fetch guard order, including the early HTTP 304 return.
-   - `S`: article state with `exists` and `read`. `ACT` provides action guards. `LOG` stores action text.
-   - `MIG`: part names and three stage descriptions. The slider value selects a stage.
-   - `RISKS`: category, title, detail, and source path for each expandable risk.
-   - `alternatives`: title, explanation, and source path for each documented choice.
+   Render it with small functions. Use the data objects of the example, with
+   the same names: `SOURCE`, `TABS`, `VOC`, `N`, `E`, `FLOWS`, `T`, `API`,
+   `S`, `ACT`, `LOG`, `MIG`, `RISKS`, and `alternatives`. Read their fields
+   in the example. `sim()` follows the guard order of the code.
 2. Use the shared helpers: `$`, `esc`, `chips(el, items, current, onPick)`,
    and `showTab`. Escape text and interpolated attribute values with `esc` before inserting HTML.
    The helper escapes ampersand, less-than, greater-than, double quote, and single quote.

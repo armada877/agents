@@ -31,16 +31,18 @@ each line. These rules come first:
 Your owner gives the target: the product repo, the head SHA, and the
 service. The store path is in
 `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`. The service repo path is
-in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/services-repo`. Read
-`system-store.md` next to this skill for the store layout.
+in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/services-repo`. Read the store layout
+with `cat "$(realpath <this skill's base directory>)/../system-store.md"`.
 
 ## Steps
 
 1. Read the store: `inventory/services.toml`, `policy/access.md`, open
    `concerns/`, and the last lines of `deploys.log`.
 2. Capture the live state, read-only, before the design is final. Save each
-   output under `fixtures/<service>/` in the store:
-   - `systemctl --user show <unit>`
+   output under `fixtures/<service>/` in the store. Capture only these
+   commands. Never capture environment values, command lines, or file
+   contents, because they can hold secrets:
+   - `systemctl --user show <unit> --property=Id,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,DropInPaths,NoNewPrivileges,ProtectSystem,ProtectHome,PrivateTmp,MemoryMax,TasksMax`
    - `findmnt -J`
    - `stat` of each path that the service uses
    - `podman unshare cat /proc/self/uid_map`
@@ -64,8 +66,23 @@ in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/services-repo`. Read
    flock -w 60 "$store/.lock" sh -c 'git -C "$1" add -A && git -C "$1" commit -m "$2"' _ "$store" "<one line>"
    ```
 
-8. Report to your owner with the `hc-worker` report format and
-   `hc send <owner> "REPORT: ..."`.
+8. Report to your owner.
+
+## Report
+
+Write your report to the exact path in your first prompt:
+
+```markdown
+# <your name> report
+status: done | needs-input | failed
+## Result
+<result> <deploy plan or store file path>
+## Checks
+<each command and its result>
+```
+
+Then run `hc send <owner> "REPORT: <report path> status=<status>"`, and
+end your turn.
 
 An approval names the exact digest and files. A change after the approval
 needs a new approval.
