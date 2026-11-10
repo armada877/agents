@@ -60,31 +60,11 @@ Link related code under System Architecture and Business Logic. Use repo-relativ
 For an HTTP service, adapt the CLI explorer to routes, credentials, requests, responses, and errors.
 Use rollout stages or rejected alternatives only when the source supports them.
 
-## syn-cli example adaptations
+## Example colors
 
-The article uniqueness constraint uses two columns. The foreign key uses one column.
-The CLI section explains exit codes and why API credentials do not apply.
-The simulator makes no requests. Reset restores the example article state.
-The migration stages describe existing behavior, not future releases.
-Alternatives lists documented choices without inventing rejected options.
-
-The architecture diagram includes the separate TUI image service, image HTTP source, and disk cache.
-Image flow chips distinguish cache hits from downloads after cache misses.
-Pinned links identify the image service, TUI model, and TUI image controls.
-Feed domain interfaces cover feed fetching and article storage. Image downloads and caching use the separate image service.
-
-The example uses these color meanings:
-
-| Token | Meaning |
-| --- | --- |
-| `--accent` | CLI and TUI components, selected controls, highlighted edges, and the selected table |
-| `--dev` | App component and successful trace steps |
-| `--loc` | SQLite storage, image disk cache, and unselected tables |
-| `--user` | Feed fetcher, image service, and their HTTP sources |
-| `--bad` | Failed trace steps |
-| `--line` | Inactive edges and neutral borders |
-
-These token names are shared CSS names. Their meanings come from this example's component types and control states.
+The example defines `--accent`, `--dev`, `--loc`, `--user`, `--bad`, and
+`--line`. Read their meanings in the example. Give each token one meaning for
+each subject, and keep it the same in each tab.
 
 ## How to build it
 
