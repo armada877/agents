@@ -1,6 +1,6 @@
 table inet hc_sandbox {
-  set host4 { type ipv4_addr; }
-  set host6 { type ipv6_addr; }
+  set host4 { type ipv4_addr; flags interval; auto-merge; }
+  set host6 { type ipv6_addr; flags interval; auto-merge; }
   chain out {
     type filter hook output priority 0; policy accept;
     fib daddr type local tcp flags & rst == rst accept

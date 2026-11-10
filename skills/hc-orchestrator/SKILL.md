@@ -78,7 +78,7 @@ hc-sandbox down
 ```
 
 Read the screenshots in `.hc-sandbox/out/`. Fix the code. Run the loop
-again. Read `bin/hc-sandbox.md` in this skill's repo for the config file. Use
+again. Run `hc-sandbox --help` for the config file. Use
 fake data. Real data needs the user's approval.
 
 ## Ask the user

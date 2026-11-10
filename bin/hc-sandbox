@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import dataclasses
 import hashlib
+import ipaddress
 import json
 import os
 import pwd
@@ -31,6 +32,7 @@ HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
 LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
 BUILD_LIMITS = ["--memory", "4g"]
 BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
+GLOBAL_IPV6 = ipaddress.ip_network("2000::/3")
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 BUILD_SCRIPT = (
     'set -e; mkdir /ctx; tar -x -C /ctx -f -; '
@@ -40,6 +42,21 @@ BUILD_SCRIPT = (
     'cat /tmp/image.tar'
 )
 PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM")
+CONFIG_HELP = """config: put hc-sandbox.toml in the worktree root. Only name is required.
+
+  name = "my-app"
+  containerfile = "Containerfile"
+  port = 8000
+  ready_path = "/"
+  ready_timeout = 60
+  test_command = ["python", "-m", "unittest"]
+
+  [[pages]]
+  path = "/"
+  expect = "text that the page must show"
+
+The app must listen on the pod address, from the pod host name.
+Screenshots go to .hc-sandbox/out/. Use fake data."""
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 PAGE_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*$")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._/+@-]+$")
@@ -214,11 +231,11 @@ class Sandbox:
 
     @property
     def store(self):
-        return f"hcsb-store-{self.config.name}"
+        return f"hcsb-store-{self.id}"
 
     @property
     def cache(self):
-        return f"hcsb-cache-{self.config.name}"
+        return f"hcsb-cache-{self.id}"
 
     @property
     def out(self):
@@ -280,9 +297,19 @@ def exists(kind, name):
     return podman(kind, "exists", name, check=False, quiet=True).returncode == 0
 
 
+def host_networks(links):
+    networks = set()
+    for link in links:
+        for info in link.get("addr_info", []):
+            interface = ipaddress.ip_interface(f"{info['local']}/{info['prefixlen']}")
+            global_ipv6 = interface.version == 6 and interface.ip in GLOBAL_IPV6
+            networks.add(str(interface.network if global_ipv6 else interface.ip))
+    return sorted(networks)
+
+
 def host_addresses():
     result = subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True, check=True)
-    return sorted({info["local"] for link in json.loads(result.stdout) for info in link.get("addr_info", [])})
+    return host_networks(json.loads(result.stdout))
 
 
 PASTA_NETWORK = "pasta:--no-map-gw"
@@ -565,7 +592,8 @@ def list_sandboxes():
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(prog="hc-sandbox", description="Build, run, and test a worktree in rootless Podman.")
+    parser = argparse.ArgumentParser(prog="hc-sandbox", description="Build, run, and test a worktree in rootless Podman.",
+                                     epilog=CONFIG_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-C", dest="directory", default=".", help="start the search for hc-sandbox.toml here")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("build", help="build the image from the worktree")

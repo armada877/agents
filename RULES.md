@@ -21,4 +21,4 @@ approved on 2026-11-10.
 - 2026-11-10, until 2027-05-10: One reviewer, read-only, of the other model family, checks each change before merge. Add a security review only for a new access path, a root step, or real secrets or mail. The user: "the reviewer agents, security and service. are workers under a product owner"
 - 2026-11-10, until 2027-05-10: Change a live service only through a `service-deploy` worker and the user's deploy approval. Install new next to old, on another port. (Plan)
 - 2026-11-10, until 2027-05-10: Start each agent fresh with `hc run`, one skill, and `state.md`. Never use `--resume` for a goal. A handoff lists facts and open items, never standing rules. The user: "we should be cycling even sup's and h agents between projects"
-- 2026-11-10, until 2027-05-10: Tag each claim about tool behavior that reaches The user: `[help: <cmd>]`, `[code: <file:line>]`, `[test: <run>]`, or `[unverified]`. (Constitution)
+- 2026-11-10, until 2027-05-10: Tag each claim about tool behavior that reaches the user: `[help: <cmd>]`, `[code: <file:line>]`, `[test: <run>]`, or `[unverified]`. (Constitution)

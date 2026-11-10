@@ -51,7 +51,8 @@ first:
 
 If the work changes a product, run it with `hc-sandbox build`, `up`, and
 `test`. Read the screenshots in `.hc-sandbox/out/`. Unit tests alone are not
-proof.
+proof. If the worktree has no `hc-sandbox.toml`, run `hc-sandbox --help`
+for the config file.
 
 ## Decide, then report
 

@@ -85,7 +85,8 @@ It sends a link as a link. It leaves out `.hc-sandbox`. The builder runs
 `buildah` with `--isolation chroot` on the copy. Each `RUN` step gets only the
 capabilities in the table. The builder sends the image archive back on its
 output, and the host loads it with `podman load`.
-The layers stay in the `hcsb-store-<name>` volume for the next build.
+The layers stay in the `hcsb-store-<id>` volume for the next build. The id is
+the project name and a hash of the worktree path.
 
 The builder joins the network of a small egress container on a `pasta`
 network with `--no-map-gw`. So base image pulls, `ADD <url>`, and
@@ -142,8 +143,8 @@ file and does not write through an old link.
   worktree contents.
 - DNS in the build step uses the host resolver. A build can resolve tailnet
   names. It cannot connect to them.
-- The app can write to the cache volume. The cache volume and the layer
-  store are shared by all worktrees of a project.
+- The app can write to the cache volume. Each worktree has its own cache
+  volume and layer store.
 - The builder has `SYS_ADMIN` and `SYS_CHROOT` in the user namespace of the
   sandbox store. `buildah` needs `SYS_ADMIN` for its mounts. Without it,
   `buildah` tries to make its own user namespace and cannot write the ID map.
@@ -172,9 +173,12 @@ They make temporary worktrees in `~/.herdr/worktrees/hc-sandbox-test`:
 HC_SANDBOX_E2E=1 bin/test-hc-sandbox
 ```
 
-The escape tests start a listener on `127.0.0.1` and on each host address.
-Nothing binds `0.0.0.0`. The tests check that the build and
-the app cannot reach it on any host address, or reach the tailnet. They also
+The escape tests start a listener on `127.0.0.1` only. Nothing binds
+`0.0.0.0` or a LAN or tailnet address. For each other host address, the tests
+use up to three listeners that already run on the host. They only open and
+close a connection to them. The tests check that the build, also with
+`RUN --network=host`, and the app cannot reach these listeners or the
+tailnet. They also
 check that the app cannot reach the internet, read the home folder, find a
 Podman socket, read the host environment, or write to the worktree. They check
 that a published port binds to `127.0.0.1` only. While the sandbox runs, they

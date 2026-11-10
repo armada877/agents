@@ -49,7 +49,11 @@ Start one owner for each goal. A new feature or a pivot is a new goal.
    git -C <repo> worktree add ~/.herdr/worktrees/<repo>/<topic> -b <topic> origin/main
    ```
 
-   A repo with no remote uses its local `main`. Add no remote.
+   For a repo with no remote, run this instead. Add no remote.
+
+   ```sh
+   git -C <repo> worktree add ~/.herdr/worktrees/<repo>/<topic> -b <topic> main
+   ```
 3. Read the `orchestrator` entry of `~/.config/herdr/roles.toml` for `kind`
    and `model`. The default is `claude` with no model flag.
 4. Start the owner. It must outlive you:
