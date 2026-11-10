@@ -9,8 +9,9 @@ import os
 import pwd
 import re
 import subprocess
+import stat
 import sys
-import tempfile
+import tarfile
 import time
 import tomllib
 from pathlib import Path
@@ -31,11 +32,11 @@ BUILD_LIMITS = ["--memory", "4g"]
 BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 BUILD_SCRIPT = (
-    '[ "$(stat -c %i /ctx)" = "$3" ] && [ "$(stat -c %i /out)" = "$4" ] '
-    '|| { echo "hc-sandbox: a mount changed before the build" >&2; exit 90; }; '
+    'set -e; mkdir /ctx; tar -x -C /ctx -f -; '
     'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
-    '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx '
-    '&& buildah --storage-driver vfs push hc-sandbox-build oci-archive:/out/image.tar'
+    '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx >&2; '
+    'buildah --storage-driver vfs push hc-sandbox-build oci-archive:/tmp/image.tar >&2; '
+    'cat /tmp/image.tar'
 )
 PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
@@ -128,25 +129,42 @@ def check_worktree(worktree, root):
             f"the worktree must be a folder at least two levels under {root}")
 
 
-def directory_inode(path, dir_fd=None):
+def open_worktree(path, root):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        fd = os.open(path, OPEN_DIR, dir_fd=dir_fd)
-    except OSError as error:
-        raise SandboxError(f"cannot open {path} as a folder that is not a link: {error.strerror}") from None
-    try:
-        return os.fstat(fd).st_ino
-    finally:
+        real = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        check_worktree(real, root)
+    except BaseException:
         os.close(fd)
+        raise
+    return fd, real
 
 
-def load_config(worktree):
-    config_path = worktree / CONFIG_FILE
-    require(not config_path.is_symlink(), f"{CONFIG_FILE} must not be a symlink")
-    with open(config_path, "rb") as handle:
-        config = parse_config(tomllib.load(handle))
-    containerfile = worktree / config.containerfile
-    require(containerfile.is_file() and containerfile.resolve().is_relative_to(worktree),
-            f"containerfile not found in the worktree: {config.containerfile}")
+def open_in(dir_fd, relative, flags):
+    parts = Path(relative).parts
+    current = os.dup(dir_fd)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, OPEN_DIR, dir_fd=current)
+            os.close(current)
+            current = child
+        return os.open(parts[-1], flags | os.O_NOFOLLOW, dir_fd=current)
+    except OSError as error:
+        raise SandboxError(f"cannot open {relative} in the worktree without links: {error.strerror}") from None
+    finally:
+        os.close(current)
+
+
+def read_in(dir_fd, relative):
+    fd = open_in(dir_fd, relative, os.O_RDONLY)
+    require(stat.S_ISREG(os.fstat(fd).st_mode), f"{relative} must be a file")
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
+def load_config(worktree_fd):
+    config = parse_config(tomllib.loads(read_in(worktree_fd, CONFIG_FILE).decode()))
+    read_in(worktree_fd, config.containerfile)
     return config
 
 
@@ -154,6 +172,7 @@ def load_config(worktree):
 class Sandbox:
     worktree: Path
     config: Config
+    fd: int = -1
 
     @property
     def id(self):
@@ -248,12 +267,12 @@ def asset_build_args(kind, tag):
             "--label", f"{LABEL}=1", "--tag", tag, "--file", str(ASSETS / f"{kind}.Containerfile"), str(ASSETS)]
 
 
-def builder_args(sandbox, builder_image, out_dir, inodes):
-    return ["run", "--rm", "--name", sandbox.builder, *sandbox.labels(), "--network", f"container:{sandbox.egress}",
-            "--cap-drop", "all", "--cap-add", BUILDER_CAPS, "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
-            "--volume", f"{sandbox.worktree}:/ctx:ro", "--volume", f"{sandbox.store}:{BUILDER_STORE}",
-            "--volume", f"{sandbox.cache}:/cache", "--volume", f"{out_dir}:/out",
-            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile, *inodes]
+def builder_args(sandbox, builder_image):
+    return ["run", "--rm", "--interactive", "--name", sandbox.builder, *sandbox.labels(),
+            "--network", f"container:{sandbox.egress}", "--cap-drop", "all", "--cap-add", BUILDER_CAPS,
+            "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
+            "--volume", f"{sandbox.store}:{BUILDER_STORE}", "--volume", f"{sandbox.cache}:/cache",
+            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
 
 
 def ensure_volume(name):
@@ -294,12 +313,57 @@ def egress_filter(sandbox):
         podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
 
 
-def load_image(archive, image):
-    require(archive.is_file() and not archive.is_symlink(), "the build wrote no image")
-    result = podman("load", "--input", str(archive), capture=True)
-    loaded = re.search(r"Loaded image: (\S+)", result.stdout)
-    require(loaded, "podman load gave no image")
-    podman("tag", loaded.group(1), image, quiet=True)
+def tar_info(name, status, kind):
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    info.mode = stat.S_IMODE(status.st_mode)
+    info.mtime = int(status.st_mtime)
+    return info
+
+
+def add_tree(archive, dir_fd, prefix=""):
+    for name in sorted(os.listdir(dir_fd)):
+        if not prefix and name == STATE_DIR:
+            continue
+        status = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if stat.S_ISDIR(status.st_mode):
+            child = os.open(name, OPEN_DIR, dir_fd=dir_fd)
+            try:
+                archive.addfile(tar_info(prefix + name, status, tarfile.DIRTYPE))
+                add_tree(archive, child, f"{prefix}{name}/")
+            finally:
+                os.close(child)
+        elif stat.S_ISREG(status.st_mode):
+            with os.fdopen(os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd), "rb") as handle:
+                info = tar_info(prefix + name, os.fstat(handle.fileno()), tarfile.REGTYPE)
+                info.size = os.fstat(handle.fileno()).st_size
+                archive.addfile(info, handle)
+        elif stat.S_ISLNK(status.st_mode):
+            info = tar_info(prefix + name, status, tarfile.SYMTYPE)
+            info.linkname = os.readlink(name, dir_fd=dir_fd)
+            archive.addfile(info)
+
+
+def write_context(worktree_fd, stream):
+    with tarfile.open(fileobj=stream, mode="w|") as archive:
+        add_tree(archive, worktree_fd)
+
+
+def run_builder(sandbox, builder_image):
+    builder = subprocess.Popen(["podman", *builder_args(sandbox, builder_image)], env=podman_env(),
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    loader = subprocess.Popen(["podman", "load"], env=podman_env(), stdin=builder.stdout,
+                              stdout=subprocess.PIPE, text=True)
+    builder.stdout.close()
+    with contextlib.suppress(BrokenPipeError):
+        write_context(sandbox.fd, builder.stdin)
+    with contextlib.suppress(BrokenPipeError):
+        builder.stdin.close()
+    loaded_output = loader.communicate()[0]
+    require(builder.wait() == 0, f"the build failed with exit code {builder.returncode}")
+    loaded = re.search(r"Loaded image: (\S+)", loaded_output)
+    require(loader.returncode == 0 and loaded, "podman load gave no image")
+    return loaded.group(1)
 
 
 def build(sandbox):
@@ -307,10 +371,9 @@ def build(sandbox):
     ensure_volume(sandbox.store)
     builder_image = ensure_asset_image("builder")
     ensure_asset_image("browser")
-    with tempfile.TemporaryDirectory(prefix="hc-sandbox-") as out_dir, egress_filter(sandbox):
-        inodes = (str(directory_inode(sandbox.worktree)), str(directory_inode(out_dir)))
-        podman(*builder_args(sandbox, builder_image, out_dir, inodes))
-        load_image(Path(out_dir) / "image.tar", sandbox.image)
+    with egress_filter(sandbox):
+        loaded = run_builder(sandbox, builder_image)
+    podman("tag", loaded, sandbox.image, quiet=True)
     print(f"hc-sandbox: built {sandbox.image}")
 
 
@@ -332,34 +395,34 @@ def write_new_file(dir_fd, name, text):
         handle.write(text)
 
 
-def ensure_out_dir(sandbox):
-    worktree_fd = os.open(sandbox.worktree, OPEN_DIR)
+def write_file(dir_fd, name, data):
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(name, dir_fd=dir_fd)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dir_fd)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+
+
+def open_out_dir(sandbox):
+    state_fd = open_child_dir(sandbox.fd, STATE_DIR)
     try:
-        state_fd = open_child_dir(worktree_fd, STATE_DIR)
-        try:
-            write_new_file(state_fd, ".gitignore", "*\n")
-            out_fd = open_child_dir(state_fd, "out")
-            try:
-                return os.fstat(out_fd).st_ino
-            finally:
-                os.close(out_fd)
-        finally:
-            os.close(state_fd)
+        write_new_file(state_fd, ".gitignore", "*\n")
+        return open_child_dir(state_fd, "out")
     finally:
-        os.close(worktree_fd)
+        os.close(state_fd)
 
 
-def mount_inode(container, path):
-    result = podman("exec", container, "stat", "-c", "%i", path, capture=True, check=False)
-    return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else None
-
-
-def check_mounts(sandbox, worktree_inode, out_inode):
-    same = (mount_inode(sandbox.browser, "/work") == worktree_inode
-            and mount_inode(sandbox.browser, "/out") == out_inode)
-    if not same:
-        down(sandbox, announce=False)
-        raise SandboxError("a mount changed while the pod started")
+def copy_screenshot(sandbox, name):
+    result = subprocess.run(["podman", "exec", sandbox.browser, "cat", f"/tmp/{name}"], env=podman_env(),
+                            capture_output=True)
+    if result.returncode or not result.stdout:
+        return False
+    out_fd = open_out_dir(sandbox)
+    try:
+        write_file(out_fd, name, result.stdout)
+    finally:
+        os.close(out_fd)
+    return True
 
 
 def published_port(sandbox):
@@ -397,18 +460,14 @@ def up(sandbox, publish):
     require(not publish or sandbox.config.port, "--publish needs a port in the config")
     down(sandbox, announce=False)
     ensure_volume(sandbox.cache)
-    worktree_inode = directory_inode(sandbox.worktree)
-    out_inode = ensure_out_dir(sandbox)
+    os.close(open_out_dir(sandbox))
     podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
     ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []
     podman("pod", "create", "--name", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS,
-           "--volume", f"{sandbox.worktree}:/work:ro", "--volume", f"{sandbox.cache}:/cache",
-           sandbox.image, quiet=True)
+           "--volume", f"{sandbox.cache}:/cache", sandbox.image, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
-           *LIMITS, "--volume", f"{sandbox.worktree}:/work:ro", "--volume", f"{sandbox.out}:/out",
-           "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
-    check_mounts(sandbox, worktree_inode, out_inode)
+           *LIMITS, "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
     if sandbox.config.port:
         ready = wait_until(lambda: app_ready(sandbox) or not app_running(sandbox), sandbox.config.ready_timeout)
         require(ready and app_running(sandbox), "the app did not answer on its port: run hc-sandbox logs")
@@ -425,10 +484,10 @@ def page_slug(path):
 def check_page(sandbox, page):
     screenshot = f"{page_slug(page.path)}.png"
     url = app_url(sandbox, page.path)
-    shot = podman("exec", sandbox.browser, *BROWSER, f"--screenshot=/out/{screenshot}", url,
+    shot = podman("exec", sandbox.browser, *BROWSER, f"--screenshot=/tmp/{screenshot}", url,
                   check=False, quiet=True)
     dom = podman("exec", sandbox.browser, *BROWSER, "--dump-dom", url, check=False, quiet=True)
-    if shot.returncode or dom.returncode:
+    if shot.returncode or dom.returncode or not copy_screenshot(sandbox, screenshot):
         return f"{page.path}: the browser failed"
     if page.expect not in dom.stdout:
         return f"{page.path}: the page does not contain {page.expect!r}"
@@ -491,9 +550,14 @@ def parse_args(argv):
 def run(args):
     if args.command == "ls":
         return list_sandboxes()
-    worktree = find_worktree(Path(args.directory).resolve())
-    check_worktree(worktree, worktrees_root())
-    sandbox = Sandbox(worktree, load_config(worktree))
+    worktree_fd, worktree = open_worktree(find_worktree(Path(args.directory).resolve()), worktrees_root())
+    try:
+        return run_command(args, Sandbox(worktree, load_config(worktree_fd), worktree_fd))
+    finally:
+        os.close(worktree_fd)
+
+
+def run_command(args, sandbox):
     if args.command == "build":
         build(sandbox)
     elif args.command == "up":

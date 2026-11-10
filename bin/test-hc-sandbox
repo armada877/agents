@@ -91,7 +91,11 @@ class ConfigTests(unittest.TestCase):
             module.parse_config({"name": "app", "port": 80, "pages": [{"path": "http://x/"}]})
 
     def test_example_config_loads(self):
-        config = module.load_config(EXAMPLE)
+        fd = os.open(EXAMPLE, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            config = module.load_config(fd)
+        finally:
+            os.close(fd)
         self.assertEqual(config.name, "sandbox-hello")
         self.assertTrue(config.pages)
 
@@ -129,10 +133,16 @@ class CommandTests(unittest.TestCase):
         self.assertIn("two levels under", error.getvalue())
 
 
-class OutDirTests(unittest.TestCase):
-    def sandbox_in(self, directory):
-        return module.Sandbox(Path(directory), module.parse_config({"name": "app"}))
+@contextlib.contextmanager
+def opened(directory):
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        yield module.Sandbox(Path(directory), module.parse_config({"name": "app"}), fd)
+    finally:
+        os.close(fd)
 
+
+class OutDirTests(unittest.TestCase):
     def test_gitignore_link_is_not_followed(self):
         with tempfile.TemporaryDirectory() as directory:
             outside = Path(directory) / "outside.txt"
@@ -140,7 +150,8 @@ class OutDirTests(unittest.TestCase):
             worktree = Path(directory) / "w"
             (worktree / module.STATE_DIR).mkdir(parents=True)
             (worktree / module.STATE_DIR / ".gitignore").symlink_to(outside)
-            module.ensure_out_dir(self.sandbox_in(worktree))
+            with opened(worktree) as sandbox:
+                os.close(module.open_out_dir(sandbox))
             self.assertEqual(outside.read_text(), "keep")
 
     def test_gitignore_hard_link_is_not_written(self):
@@ -150,8 +161,26 @@ class OutDirTests(unittest.TestCase):
             worktree = Path(directory) / "w"
             (worktree / module.STATE_DIR).mkdir(parents=True)
             os.link(outside, worktree / module.STATE_DIR / ".gitignore")
-            module.ensure_out_dir(self.sandbox_in(worktree))
+            with opened(worktree) as sandbox:
+                os.close(module.open_out_dir(sandbox))
             self.assertEqual(outside.read_text(), "keep")
+
+    def test_screenshot_replaces_a_link_and_keeps_the_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.png"
+            outside.write_text("keep")
+            out = Path(directory) / "out"
+            out.mkdir()
+            (out / "index.png").symlink_to(outside)
+            os.link(outside, out / "hard.png")
+            fd = os.open(out, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                module.write_file(fd, "index.png", b"new")
+                module.write_file(fd, "hard.png", b"new")
+            finally:
+                os.close(fd)
+            self.assertEqual(outside.read_text(), "keep")
+            self.assertEqual((out / "index.png").read_bytes(), b"new")
 
     def test_linked_state_folders_are_refused(self):
         for linked in (module.STATE_DIR, f"{module.STATE_DIR}/out"):
@@ -161,14 +190,65 @@ class OutDirTests(unittest.TestCase):
                 worktree = Path(directory) / "w"
                 (worktree / linked).parent.mkdir(parents=True, exist_ok=True)
                 (worktree / linked).symlink_to(target)
-                with self.assertRaises(module.SandboxError):
-                    module.ensure_out_dir(self.sandbox_in(worktree))
+                with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                    module.open_out_dir(sandbox)
                 self.assertEqual(list(target.iterdir()), [])
 
-    def test_new_gitignore_is_written(self):
+
+class PinnedWorktreeTests(unittest.TestCase):
+    def test_linked_ancestor_outside_the_root_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
-            module.ensure_out_dir(self.sandbox_in(directory))
-            self.assertEqual((Path(directory) / module.STATE_DIR / ".gitignore").read_text(), "*\n")
+            root = Path(directory) / "root"
+            outside = Path(directory) / "outside" / "topic"
+            outside.mkdir(parents=True)
+            root.mkdir()
+            (root / "repo").symlink_to(outside.parent)
+            with self.assertRaises(module.SandboxError):
+                module.open_worktree(root / "repo" / "topic", root)
+
+    def test_real_worktree_is_opened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "repo" / "topic").mkdir(parents=True)
+            fd, real = module.open_worktree(root / "repo" / "topic", root)
+            os.close(fd)
+            self.assertEqual(real, root / "repo" / "topic")
+
+    def test_linked_config_and_containerfile_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside"
+            outside.write_text('name = "x"\n')
+            worktree = Path(directory) / "w"
+            worktree.mkdir()
+            (worktree / module.CONFIG_FILE).symlink_to(outside)
+            with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                module.load_config(sandbox.fd)
+            (worktree / module.CONFIG_FILE).unlink()
+            (worktree / module.CONFIG_FILE).write_text('name = "x"\n')
+            (worktree / "Containerfile").symlink_to(outside)
+            with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                module.load_config(sandbox.fd)
+
+    def test_context_keeps_links_as_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "secret.txt"
+            outside.write_text("outside-data")
+            worktree = Path(directory) / "w"
+            (worktree / "src").mkdir(parents=True)
+            (worktree / "src" / "app.py").write_text("print(1)")
+            (worktree / "link").symlink_to(outside)
+            (worktree / module.STATE_DIR / "out").mkdir(parents=True)
+            stream = io.BytesIO()
+            with opened(worktree) as sandbox:
+                module.write_context(sandbox.fd, stream)
+            stream.seek(0)
+            import tarfile
+            with tarfile.open(fileobj=stream) as archive:
+                members = {member.name: member for member in archive.getmembers()}
+                self.assertTrue(members["link"].issym())
+                self.assertEqual(archive.extractfile("src/app.py").read(), b"print(1)")
+            self.assertNotIn(module.STATE_DIR, members)
+            self.assertNotIn(b"outside-data", stream.getvalue())
 
 
 class ArgumentTests(unittest.TestCase):
@@ -184,13 +264,13 @@ class ArgumentTests(unittest.TestCase):
 
     def test_project_build_runs_in_the_egress_network(self):
         sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
-        args = module.builder_args(sandbox, "builder", "/tmp/out", ("11", "22"))
+        args = module.builder_args(sandbox, "builder")
         self.assertEqual(args[args.index("--network") + 1], f"container:{sandbox.egress}")
         self.assertEqual(args[args.index("--cap-drop") + 1], "all")
         self.assertNotIn("NET_ADMIN", args[args.index("--cap-add") + 1])
         self.assertIn("no-new-privileges", args)
-        self.assertIn("/w:/ctx:ro", args)
-        self.assertEqual(args[-4:], [module.STEP_CAPS, "Containerfile", "11", "22"])
+        self.assertFalse([arg for arg in args if arg.startswith("/w") or ":/w" in arg or "/w:" in arg])
+        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
 
     def test_asset_build_uses_repo_files_only(self):
@@ -369,10 +449,10 @@ class EscapeTests(unittest.TestCase):
         self.assertRegex(output, r"CapEff:\s+0000000000000000")
         self.assertRegex(output, r"NoNewPrivs:\s+1")
 
-    def test_worktree_is_read_only(self):
-        code, output = self.run_in_app("open('/work/written', 'w')")
-        self.assertNotEqual(code, 0)
-        self.assertFalse((self.worktree / "written").exists())
+    def test_worktree_is_not_mounted(self):
+        code, output = self.run_in_app(
+            f"import os,sys; sys.exit(3 if os.path.exists('/work') or os.path.exists({str(self.worktree)!r}) else 0)")
+        self.assertEqual(code, 0, output)
 
     def test_published_port_binds_loopback_only(self):
         listeners = subprocess.run(["ss", "-ltnH"], capture_output=True, text=True, check=True).stdout

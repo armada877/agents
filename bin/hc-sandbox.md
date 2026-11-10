@@ -60,7 +60,8 @@ See `examples/sandbox-hello` for a full example.
 |------|------------|----------|
 | Network | Public internet through a filter | Internal network, no route out |
 | Host, LAN, tailnet, link-local | Refused by the filter | No route |
-| Mounts | `/ctx` (worktree, read-only); `/cache`; the layer store | `/work` (worktree, read-only); `/cache`; `/out` for the browser only |
+| Host folders | None. The worktree arrives as a copy. | None |
+| Volumes | `/cache`; the layer store | `/cache` |
 | Capabilities | Each step: CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, in the user namespace | None |
 | `no-new-privileges` | Yes | Yes |
 | Host environment | None | None |
@@ -73,10 +74,13 @@ See `examples/sandbox-hello` for a full example.
 The host `podman build` runs only the files in `hc-sandbox.d/`. These are
 the egress, builder, and browser images.
 
-A project build runs in the builder container. The builder runs `buildah`
-with `--isolation chroot` on the worktree, which it sees read-only at `/ctx`.
-Each `RUN` step gets only the capabilities in the table. The builder writes an
-image archive to a temporary folder. The host loads it with `podman load`.
+A project build runs in the builder container. The wrapper sends a copy of
+the worktree to the builder as a tar stream. It reads the worktree through one
+open folder handle, and it opens each file and folder without following links.
+It sends a link as a link. It leaves out `.hc-sandbox`. The builder runs
+`buildah` with `--isolation chroot` on the copy. Each `RUN` step gets only the
+capabilities in the table. The builder sends the image archive back on its
+output, and the host loads it with `podman load`.
 The layers stay in the `hcsb-store-<name>` volume for the next build.
 
 The builder joins the network of a small egress container on a `pasta`
@@ -93,18 +97,22 @@ resolver.
 ### The run step
 
 The pod uses an internal Podman network with no DNS. The app and the browser
-share the pod. The browser container has headless Chromium. It writes
-screenshots to `.hc-sandbox/out/`. Git ignores this folder.
+share the pod. Neither container has a host folder. The app runs the code
+from its image. Rebuild to change it.
+
+The browser container has headless Chromium. The wrapper copies each
+screenshot from the browser into `.hc-sandbox/out/` in the worktree. Git
+ignores this folder.
+
+### The worktree
 
 The worktree must be a folder at least two levels under
 `~/.herdr/worktrees`. The wrapper finds the home folder in the user database,
-not in `HOME`. It refuses a path with characters that break a Podman mount.
-
-The wrapper opens `.hc-sandbox` and `out` without following links, and it
-creates `.gitignore` only when it does not exist. After the pod starts, it
-checks that `/work` and `/out` in the browser container have the inodes that
-it opened. The builder does the same check for `/ctx` and its output folder.
-If a check fails, the wrapper stops the pod or the build.
+not in `HOME`. It opens the worktree one time, and checks the real path of
+that open folder. Later steps use only this open folder. It reads the config
+file and the Containerfile without following links. It creates `.hc-sandbox`,
+`out`, and `.gitignore` without following links. It replaces a screenshot
+file and does not write through an old link.
 
 ## Residual risks
 
@@ -119,8 +127,8 @@ If a check fails, the wrapper stops the pod or the build.
 - The builder has no registry credentials. A private base image does not
   work.
 - Chromium runs with `--no-sandbox`. The container is its sandbox.
-- The worktree is visible to the app, read-only. Do not keep secrets in the
-  worktree.
+- The build gets a copy of the whole worktree, apart from `.hc-sandbox`.
+  Do not keep secrets in the worktree.
 - A real data set needs a decision from the user. The sandbox has no way to
   mount data from outside the worktree.
 
