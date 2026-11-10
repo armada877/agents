@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+
+import argparse
+import contextlib
+import dataclasses
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+
+CONFIG_FILE = "hc-sandbox.toml"
+ASSETS = Path(os.path.realpath(__file__)).parent / "hc-sandbox.d"
+STATE_DIR = ".hc-sandbox"
+LABEL = "hc-sandbox"
+PASTA_DNS = "169.254.1.1"
+BUILD_CAPS = "CHOWN,DAC_OVERRIDE,FOWNER,FSETID,SETUID,SETGID"
+HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
+LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
+BUILD_LIMITS = ["--memory", "4g"]
+PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+PAGE_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*$")
+SAFE_PATH = re.compile(r"^[A-Za-z0-9._/+@-]+$")
+CONFIG_KEYS = {"name", "containerfile", "port", "ready_path", "ready_timeout", "test_command", "pages"}
+PAGE_KEYS = {"path", "expect"}
+BROWSER = ["chromium-browser", "--headless", "--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+           "--disable-dev-shm-usage", "--hide-scrollbars", "--user-data-dir=/tmp/chromium",
+           "--window-size=1280,800", "--virtual-time-budget=5000"]
+
+
+class SandboxError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class Page:
+    path: str
+    expect: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Config:
+    name: str
+    containerfile: str = "Containerfile"
+    port: int | None = None
+    ready_path: str = "/"
+    ready_timeout: int = 60
+    test_command: tuple[str, ...] = ()
+    pages: tuple[Page, ...] = ()
+
+
+def require(condition, message):
+    if not condition:
+        raise SandboxError(message)
+
+
+def parse_pages(raw):
+    require(isinstance(raw, list), "pages must be a list of tables")
+    pages = []
+    for entry in raw:
+        require(isinstance(entry, dict) and set(entry) <= PAGE_KEYS and "path" in entry,
+                "each page needs path and an optional expect")
+        path = entry["path"]
+        expect = entry.get("expect", "")
+        require(isinstance(path, str) and PAGE_PATH.match(path), f"bad page path: {path!r}")
+        require(isinstance(expect, str), "page expect must be a string")
+        pages.append(Page(path, expect))
+    return tuple(pages)
+
+
+def parse_config(data):
+    unknown = set(data) - CONFIG_KEYS
+    require(not unknown, f"unknown keys in {CONFIG_FILE}: {', '.join(sorted(unknown))}")
+    name = data.get("name")
+    require(isinstance(name, str) and NAME.match(name), "name must match [a-z0-9][a-z0-9-]{0,30}")
+    containerfile = data.get("containerfile", "Containerfile")
+    require(isinstance(containerfile, str) and SAFE_PATH.match(containerfile)
+            and not containerfile.startswith("/") and ".." not in Path(containerfile).parts,
+            "containerfile must be a plain relative path in the worktree")
+    port = data.get("port")
+    require(port is None or (type(port) is int and 1 <= port <= 65535), "port must be 1-65535")
+    ready_path = data.get("ready_path", "/")
+    require(isinstance(ready_path, str) and PAGE_PATH.match(ready_path), "bad ready_path")
+    ready_timeout = data.get("ready_timeout", 60)
+    require(type(ready_timeout) is int and 1 <= ready_timeout <= 600, "ready_timeout must be 1-600")
+    test_command = data.get("test_command", [])
+    require(isinstance(test_command, list) and all(isinstance(part, str) for part in test_command),
+            "test_command must be a list of strings")
+    pages = parse_pages(data.get("pages", []))
+    require(not pages or port, "pages need a port")
+    return Config(name, containerfile, port, ready_path, ready_timeout, tuple(test_command), pages)
+
+
+def find_worktree(start):
+    for directory in (start, *start.parents):
+        if (directory / CONFIG_FILE).is_file():
+            return directory
+    raise SandboxError(f"no {CONFIG_FILE} in {start} or its parents")
+
+
+def check_worktree(worktree, home):
+    require(SAFE_PATH.match(str(worktree)), f"worktree path has characters that Podman mounts cannot use: {worktree}")
+    require(worktree != Path("/") and worktree not in (home, *home.parents),
+            "the worktree must not be the home folder or a parent of it")
+
+
+def load_config(worktree):
+    config_path = worktree / CONFIG_FILE
+    require(not config_path.is_symlink(), f"{CONFIG_FILE} must not be a symlink")
+    with open(config_path, "rb") as handle:
+        config = parse_config(tomllib.load(handle))
+    containerfile = worktree / config.containerfile
+    require(containerfile.is_file() and containerfile.resolve().is_relative_to(worktree),
+            f"containerfile not found in the worktree: {config.containerfile}")
+    return config
+
+
+@dataclasses.dataclass(frozen=True)
+class Sandbox:
+    worktree: Path
+    config: Config
+
+    @property
+    def id(self):
+        digest = hashlib.sha256(str(self.worktree).encode()).hexdigest()[:8]
+        return f"{self.config.name}-{digest}"
+
+    @property
+    def image(self):
+        return f"localhost/hc-sandbox/{self.id}:latest"
+
+    @property
+    def pod(self):
+        return f"hcsb-{self.id}"
+
+    @property
+    def network(self):
+        return f"hcsb-{self.id}"
+
+    @property
+    def app(self):
+        return f"hcsb-{self.id}-app"
+
+    @property
+    def browser(self):
+        return f"hcsb-{self.id}-browser"
+
+    @property
+    def egress(self):
+        return f"hcsb-{self.id}-egress"
+
+    @property
+    def cache(self):
+        return f"hcsb-cache-{self.config.name}"
+
+    @property
+    def out(self):
+        return self.worktree / STATE_DIR / "out"
+
+    def labels(self):
+        return ["--label", f"{LABEL}=1", "--label", f"{LABEL}.worktree={self.worktree}"]
+
+
+def podman_env():
+    return {key: os.environ[key] for key in PODMAN_ENV_KEYS if key in os.environ}
+
+
+def podman(*args, capture=False, check=True, quiet=False):
+    result = subprocess.run(
+        ["podman", *args],
+        env=podman_env(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE if capture or quiet else None,
+        stderr=subprocess.PIPE if quiet else None,
+        text=True,
+    )
+    if check and result.returncode:
+        detail = (result.stderr or "").strip() if quiet else ""
+        raise SandboxError(f"podman {args[0]} failed with exit code {result.returncode}. {detail}".strip())
+    return result
+
+
+def exists(kind, name):
+    return podman(kind, "exists", name, check=False, quiet=True).returncode == 0
+
+
+def host_addresses():
+    result = subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True, check=True)
+    return sorted({info["local"] for link in json.loads(result.stdout) for info in link.get("addr_info", [])})
+
+
+PASTA_NETWORK = "pasta:--no-map-gw"
+
+
+def asset_tag(kind):
+    digest = hashlib.sha256()
+    for path in sorted(ASSETS.iterdir()):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes())
+    return f"localhost/hc-sandbox/{kind}:{digest.hexdigest()[:12]}"
+
+
+def build_args(network, cache_path, image, containerfile, context, labels):
+    return ["build", "--pull=missing", "--http-proxy=false", "--network", network, "--dns", PASTA_DNS,
+            "--cap-drop", "all", "--cap-add", BUILD_CAPS, "--security-opt", "no-new-privileges",
+            *BUILD_LIMITS, "--volume", f"{cache_path}:/cache", *labels,
+            "--tag", image, "--file", str(containerfile), str(context)]
+
+
+def ensure_cache(sandbox):
+    if not exists("volume", sandbox.cache):
+        podman("volume", "create", "--label", f"{LABEL}=1", sandbox.cache, quiet=True)
+    return podman("volume", "inspect", "--format", "{{.Mountpoint}}", sandbox.cache, capture=True).stdout.strip()
+
+
+def ensure_asset_image(kind, network, cache_path):
+    tag = asset_tag(kind)
+    if not exists("image", tag):
+        print(f"hc-sandbox: build the {kind} image", file=sys.stderr)
+        podman(*build_args(network, cache_path, tag, ASSETS / f"{kind}.Containerfile", ASSETS,
+                           ["--label", f"{LABEL}=1"]))
+    return tag
+
+
+def wait_until(check, timeout, interval=0.5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(interval)
+    return False
+
+
+@contextlib.contextmanager
+def egress_namespace(sandbox, cache_path):
+    image = ensure_asset_image("egress", PASTA_NETWORK, cache_path)
+    podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
+    podman("run", "--detach", "--name", sandbox.egress, *sandbox.labels(), "--network", PASTA_NETWORK,
+           "--cap-drop", "all", "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS,
+           image, *host_addresses(), quiet=True)
+    try:
+        ready = wait_until(lambda: podman("exec", sandbox.egress, "test", "-f", "/run/hc-sandbox-ready",
+                                          check=False, quiet=True).returncode == 0, 30)
+        require(ready, "the egress filter did not start")
+        pid = podman("inspect", "--format", "{{.State.Pid}}", sandbox.egress, capture=True).stdout.strip()
+        yield f"ns:/proc/{pid}/ns/net"
+    finally:
+        podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
+
+
+def build(sandbox):
+    cache_path = ensure_cache(sandbox)
+    with egress_namespace(sandbox, cache_path) as network:
+        ensure_asset_image("browser", network, cache_path)
+        podman(*build_args(network, cache_path, sandbox.image, sandbox.worktree / sandbox.config.containerfile,
+                           sandbox.worktree, sandbox.labels()))
+    print(f"hc-sandbox: built {sandbox.image}")
+
+
+def ensure_out_dir(sandbox):
+    state = sandbox.worktree / STATE_DIR
+    require(not state.is_symlink() and not sandbox.out.is_symlink(), f"{STATE_DIR} must not be a symlink")
+    sandbox.out.mkdir(parents=True, exist_ok=True)
+    (state / ".gitignore").write_text("*\n")
+
+
+def published_port(sandbox):
+    result = podman("port", sandbox.app, f"{sandbox.config.port}/tcp", capture=True, check=False)
+    return result.stdout.strip().rsplit(":", 1)[-1] if result.returncode == 0 and result.stdout.strip() else None
+
+
+def app_url(sandbox, path):
+    return f"http://127.0.0.1:{sandbox.config.port}{path}"
+
+
+def app_ready(sandbox):
+    return podman("exec", sandbox.browser, "wget", "-q", "-T", "2", "-O", "/dev/null",
+                  app_url(sandbox, sandbox.config.ready_path), check=False, quiet=True).returncode == 0
+
+
+def app_running(sandbox):
+    result = podman("inspect", "--format", "{{.State.Running}}", sandbox.app, check=False, quiet=True)
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def down(sandbox, announce=True):
+    podman("pod", "rm", "--force", "--time", "2", sandbox.pod, check=False, quiet=True)
+    podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
+    podman("network", "rm", "--force", sandbox.network, check=False, quiet=True)
+    if announce:
+        print(f"hc-sandbox: {sandbox.pod} is down")
+
+
+def up(sandbox, publish):
+    require(exists("image", sandbox.image), "no image: run hc-sandbox build first")
+    browser_image = asset_tag("browser")
+    require(exists("image", browser_image), "no browser image: run hc-sandbox build first")
+    require(not publish or sandbox.config.port, "--publish needs a port in the config")
+    down(sandbox, announce=False)
+    ensure_cache(sandbox)
+    ensure_out_dir(sandbox)
+    podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
+    ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []
+    podman("pod", "create", "--name", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
+    podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS,
+           "--volume", f"{sandbox.worktree}:/work:ro", "--volume", f"{sandbox.cache}:/cache",
+           sandbox.image, quiet=True)
+    podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
+           *LIMITS, "--volume", f"{sandbox.out}:/out", "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
+    if sandbox.config.port:
+        ready = wait_until(lambda: app_ready(sandbox) or not app_running(sandbox), sandbox.config.ready_timeout)
+        require(ready and app_running(sandbox), "the app did not answer on its port: run hc-sandbox logs")
+    print(f"hc-sandbox: {sandbox.pod} is up")
+    if publish:
+        print(f"hc-sandbox: open http://127.0.0.1:{published_port(sandbox)}{sandbox.config.ready_path}")
+
+
+def page_slug(path):
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
+    return slug or "index"
+
+
+def check_page(sandbox, page):
+    screenshot = f"{page_slug(page.path)}.png"
+    url = app_url(sandbox, page.path)
+    shot = podman("exec", sandbox.browser, *BROWSER, f"--screenshot=/out/{screenshot}", url,
+                  check=False, quiet=True)
+    dom = podman("exec", sandbox.browser, *BROWSER, "--dump-dom", url, check=False, quiet=True)
+    if shot.returncode or dom.returncode:
+        return f"{page.path}: the browser failed"
+    if page.expect not in dom.stdout:
+        return f"{page.path}: the page does not contain {page.expect!r}"
+    print(f"hc-sandbox: pass {page.path}, screenshot {sandbox.out / screenshot}")
+    return None
+
+
+def test(sandbox):
+    require(app_running(sandbox), "the app is not running: run hc-sandbox up")
+    failures = []
+    if sandbox.config.test_command:
+        if podman("exec", sandbox.app, *sandbox.config.test_command, check=False).returncode:
+            failures.append("test_command failed")
+    for page in sandbox.config.pages:
+        failure = check_page(sandbox, page)
+        if failure:
+            failures.append(failure)
+    for failure in failures:
+        print(f"hc-sandbox: FAIL {failure}", file=sys.stderr)
+    print(f"hc-sandbox: {'FAIL' if failures else 'PASS'}")
+    return 1 if failures else 0
+
+
+def exec_command(sandbox, command):
+    require(command, "give a command after --")
+    require(app_running(sandbox), "the app is not running: run hc-sandbox up")
+    interactive = ["--interactive", "--tty"] if sys.stdin.isatty() and sys.stdout.isatty() else []
+    return subprocess.run(["podman", "exec", *interactive, sandbox.app, *command], env=podman_env()).returncode
+
+
+def logs(sandbox, tail):
+    return podman("logs", "--tail", str(tail), sandbox.app, check=False).returncode
+
+
+def list_sandboxes():
+    result = podman("pod", "ps", "--filter", f"label={LABEL}=1", "--format", "json", capture=True)
+    for pod in json.loads(result.stdout or "[]"):
+        worktree = (pod.get("Labels") or {}).get(f"{LABEL}.worktree", "")
+        print(f"{pod['Name']}\t{pod['Status']}\t{worktree}")
+    return 0
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="hc-sandbox", description="Build, run, and test a worktree in rootless Podman.")
+    parser.add_argument("-C", dest="directory", default=".", help="start the search for hc-sandbox.toml here")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("build", help="build the image from the worktree")
+    up_parser = commands.add_parser("up", help="start the pod on an internal network")
+    up_parser.add_argument("--publish", action="store_true", help="publish the app port on 127.0.0.1")
+    commands.add_parser("test", help="run test_command and the browser checks")
+    exec_parser = commands.add_parser("exec", help="run a command in the app container")
+    exec_parser.add_argument("argv", nargs=argparse.REMAINDER)
+    logs_parser = commands.add_parser("logs", help="show the app logs")
+    logs_parser.add_argument("--tail", type=int, default=200)
+    commands.add_parser("down", help="remove the pod and its network")
+    commands.add_parser("ls", help="list sandboxes")
+    return parser.parse_args(argv)
+
+
+def run(args):
+    if args.command == "ls":
+        return list_sandboxes()
+    worktree = find_worktree(Path(args.directory).resolve())
+    check_worktree(worktree, Path.home().resolve())
+    sandbox = Sandbox(worktree, load_config(worktree))
+    if args.command == "build":
+        build(sandbox)
+    elif args.command == "up":
+        up(sandbox, args.publish)
+    elif args.command == "test":
+        return test(sandbox)
+    elif args.command == "exec":
+        command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
+        return exec_command(sandbox, command)
+    elif args.command == "logs":
+        return logs(sandbox, args.tail)
+    elif args.command == "down":
+        down(sandbox)
+    return 0
+
+
+def main(argv=None):
+    try:
+        return run(parse_args(sys.argv[1:] if argv is None else argv))
+    except SandboxError as error:
+        print(f"hc-sandbox: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

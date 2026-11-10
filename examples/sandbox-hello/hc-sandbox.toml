@@ -1,0 +1,7 @@
+name = "sandbox-hello"
+port = 8000
+test_command = ["python", "-m", "unittest", "-v", "test_app"]
+
+[[pages]]
+path = "/"
+expect = "count is "
