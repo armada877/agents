@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SKILL_LIMIT = 1200
+AGENT_LIMIT = 2000
+TOTAL_LIMIT = 6000
+RULE_LINES = 25
+SHARED = ("RULES.md", "AGENTS.md")
+RULE = re.compile(r"^- \d{4}-\d{2}-\d{2}, (permanent|until \d{4}-\d{2}-\d{2}): ")
+PRIVATE_PATTERNS = {
+    "tailnet name": re.compile(r"\b[a-z0-9-]+\.ts\.net\b", re.IGNORECASE),
+    "tailnet IPv6": re.compile(r"\bfd7a:115c:a1e0:", re.IGNORECASE),
+    "private IPv4": re.compile(
+        r"(?<![\d.])(?:10\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])|172\.(?:1[6-9]|2\d|3[01])|192\.168)"
+        r"\.\d{1,3}\.\d{1,3}(?![\d/])"),
+    "home path": re.compile(r"/home/(?!user/)[a-z_][a-z0-9_-]*/"),
+}
+ALLOWED_ADDRESSES = {"10.0.2.2", "100.100.100.100"}
+
+
+def words(text):
+    return len(text.split())
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True).stdout
+
+
+def counted_files(paths):
+    return sorted(p for p in paths if p == "RULES.md" or (p.startswith("skills/") and p.endswith(".md")))
+
+
+def tracked_files():
+    return [line for line in git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+            if (ROOT / line).is_file()]
+
+
+def read_now(path):
+    return (ROOT / path).read_text()
+
+
+def total_words(paths, read):
+    return sum(words(read(path)) for path in counted_files(paths))
+
+
+def word_errors(paths):
+    errors = []
+    shared = sum(words(read_now(name)) for name in SHARED if name in paths)
+    for path in counted_files(paths):
+        count = words(read_now(path))
+        if path.endswith("/SKILL.md"):
+            if count > SKILL_LIMIT:
+                errors.append(f"{path}: {count} words, limit {SKILL_LIMIT}")
+            if count + shared > AGENT_LIMIT:
+                errors.append(f"{path}: {count + shared} words with {' and '.join(SHARED)}, limit {AGENT_LIMIT}")
+    total = total_words(paths, read_now)
+    if total > TOTAL_LIMIT:
+        errors.append(f"skills and RULES.md: {total} words, limit {TOTAL_LIMIT}")
+    return errors
+
+
+def rule_errors(text):
+    rules = [line for line in text.splitlines() if line.startswith("- ")]
+    errors = [f"RULES.md: bad rule line: {line[:60]}" for line in rules if not RULE.match(line)]
+    if len(rules) > RULE_LINES:
+        errors.append(f"RULES.md: {len(rules)} rules, limit {RULE_LINES}")
+    return errors
+
+
+def private_names():
+    path = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "hc" / "private-names"
+    if not path.is_file():
+        return []
+    return [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
+
+
+def private_hits(path, text, names):
+    hits = []
+    for number, line in enumerate(text.splitlines(), 1):
+        for label, pattern in PRIVATE_PATTERNS.items():
+            for match in pattern.finditer(line):
+                if match.group(0) not in ALLOWED_ADDRESSES:
+                    hits.append(f"{path}:{number}: {label}")
+        lowered = line.lower()
+        hits += [f"{path}:{number}: private name from the local list" for name in names if name.lower() in lowered]
+    return hits
+
+
+def privacy_errors(paths):
+    names = private_names()
+    errors = []
+    for path in paths:
+        try:
+            text = read_now(path)
+        except UnicodeDecodeError:
+            continue
+        errors += private_hits(path, text, names)
+    return errors
+
+
+def word_change(base):
+    paths = git("ls-tree", "-r", "--name-only", base).splitlines()
+    before = total_words(paths, lambda path: git("show", f"{base}:{path}"))
+    after = total_words(tracked_files(), read_now)
+    return f"words in skills and RULES.md: {before} at {base}, {after} now, change {after - before:+d}"
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Check skill size and private names.")
+    parser.add_argument("--base", help="print the word change from this git ref")
+    args = parser.parse_args(argv)
+    paths = tracked_files()
+    errors = word_errors(paths) + privacy_errors(paths)
+    if "RULES.md" in paths:
+        errors += rule_errors(read_now("RULES.md"))
+    print(f"words in skills and RULES.md: {total_words(paths, read_now)}, limit {TOTAL_LIMIT}")
+    if args.base:
+        print(word_change(args.base))
+    for error in errors:
+        print(f"FAIL {error}", file=sys.stderr)
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from pathlib import Path
+import contextlib
+import io
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import unittest.mock
+
+sys.dont_write_bytecode = True
+
+BIN = Path(__file__).resolve().parent
+loader = SourceFileLoader("hc_sandbox", str(BIN / "hc-sandbox"))
+module = module_from_spec(spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+
+EXAMPLE = BIN.parent / "examples" / "sandbox-hello"
+E2E = os.environ.get("HC_SANDBOX_E2E") == "1"
+E2E_ROOT = module.worktrees_root() / "hc-sandbox-test"
+
+
+def e2e_directory():
+    E2E_ROOT.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=E2E_ROOT)
+CANARY = "HC_SANDBOX_CANARY"
+CANARY_BODY = "hc-sandbox-canary-7f3a"
+
+PROBE = r'''
+import json, os, socket, sys
+targets = json.load(open(sys.argv[1]))
+marker = sys.argv[2] if len(sys.argv) > 2 else "PROBE"
+for host, port in targets:
+    sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
+    sock.settimeout(3)
+    try:
+        state = "open" if sock.connect_ex((host, port)) == 0 else "closed"
+    except OSError:
+        state = "closed"
+    print(f"{marker} {host} {port} {state}", flush=True)
+'''
+
+CONTAINERFILE = '''FROM docker.io/library/python:3.12-alpine
+WORKDIR /probe
+COPY probe.py targets.json ./
+RUN python probe.py targets.json
+RUN --network=host python probe.py targets.json HOSTNET
+RUN grep -E "CapEff|NoNewPrivs" /proc/self/status | sed "s/^/BUILDSTATUS /"
+CMD ["python", "-m", "http.server", "8000"]
+'''
+
+
+class ConfigTests(unittest.TestCase):
+    def test_minimal(self):
+        config = module.parse_config({"name": "app"})
+        self.assertEqual(config.containerfile, "Containerfile")
+        self.assertIsNone(config.port)
+
+    def test_unknown_key_is_refused(self):
+        with self.assertRaises(module.SandboxError):
+            module.parse_config({"name": "app", "volumes": ["/:/host"]})
+
+    def test_bad_names_are_refused(self):
+        for name in ("", "App", "-x", "a" * 40, "a/b", None):
+            with self.subTest(name=name), self.assertRaises(module.SandboxError):
+                module.parse_config({"name": name})
+
+    def test_containerfile_must_stay_in_worktree(self):
+        for path in ("/etc/passwd", "../Containerfile", "a/../../b", "x y"):
+            with self.subTest(path=path), self.assertRaises(module.SandboxError):
+                module.parse_config({"name": "app", "containerfile": path})
+
+    def test_port_range(self):
+        for port in (0, 70000, "80", True):
+            with self.subTest(port=port), self.assertRaises(module.SandboxError):
+                module.parse_config({"name": "app", "port": port})
+
+    def test_pages_need_a_port(self):
+        with self.assertRaises(module.SandboxError):
+            module.parse_config({"name": "app", "pages": [{"path": "/"}]})
+
+    def test_page_path_must_be_absolute(self):
+        with self.assertRaises(module.SandboxError):
+            module.parse_config({"name": "app", "port": 80, "pages": [{"path": "http://x/"}]})
+
+    def test_example_config_loads(self):
+        fd = os.open(EXAMPLE, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            config = module.load_config(fd)
+        finally:
+            os.close(fd)
+        self.assertEqual(config.name, "sandbox-hello")
+        self.assertTrue(config.pages)
+
+
+class WorktreeTests(unittest.TestCase):
+    root = Path("/home/user/.herdr/worktrees")
+
+    def test_only_folders_under_the_worktrees_root(self):
+        for path in ("/home/user", "/home/user/.ssh", "/home/user/.config/hey", "/run/user/1000",
+                     "/home/user/.herdr/worktrees", "/home/user/.herdr/worktrees/repo", "/"):
+            with self.subTest(path=path), self.assertRaises(module.SandboxError):
+                module.check_worktree(Path(path), self.root)
+
+    def test_path_with_mount_separators_is_refused(self):
+        for name in ("a:b", "a,b", "a b"):
+            with self.subTest(name=name), self.assertRaises(module.SandboxError):
+                module.check_worktree(self.root / "repo" / name, self.root)
+
+    def test_worktree_is_allowed(self):
+        module.check_worktree(self.root / "repo" / "topic", self.root)
+
+    def test_root_ignores_the_home_variable(self):
+        with unittest.mock.patch.dict(os.environ, {"HOME": "/home/user/.ssh"}):
+            self.assertNotIn(".ssh", str(module.worktrees_root()))
+
+
+class CommandTests(unittest.TestCase):
+    def test_config_outside_the_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "Containerfile").write_text("FROM scratch\n")
+            Path(directory, "hc-sandbox.toml").write_text('name = "outside"\n')
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                code = module.main(["-C", directory, "build"])
+        self.assertEqual(code, 2)
+        self.assertIn("two levels under", error.getvalue())
+
+
+@contextlib.contextmanager
+def opened(directory):
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        yield module.Sandbox(Path(directory), module.parse_config({"name": "app"}), fd)
+    finally:
+        os.close(fd)
+
+
+class OutDirTests(unittest.TestCase):
+    def test_gitignore_link_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("keep")
+            worktree = Path(directory) / "w"
+            (worktree / module.STATE_DIR).mkdir(parents=True)
+            (worktree / module.STATE_DIR / ".gitignore").symlink_to(outside)
+            with opened(worktree) as sandbox:
+                os.close(module.open_out_dir(sandbox))
+            self.assertEqual(outside.read_text(), "keep")
+
+    def test_gitignore_hard_link_is_not_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("keep")
+            worktree = Path(directory) / "w"
+            (worktree / module.STATE_DIR).mkdir(parents=True)
+            os.link(outside, worktree / module.STATE_DIR / ".gitignore")
+            with opened(worktree) as sandbox:
+                os.close(module.open_out_dir(sandbox))
+            self.assertEqual(outside.read_text(), "keep")
+
+    def test_screenshot_replaces_a_link_and_keeps_the_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside.png"
+            outside.write_text("keep")
+            out = Path(directory) / "out"
+            out.mkdir()
+            (out / "index.png").symlink_to(outside)
+            os.link(outside, out / "hard.png")
+            fd = os.open(out, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                module.write_file(fd, "index.png", b"new")
+                module.write_file(fd, "hard.png", b"new")
+            finally:
+                os.close(fd)
+            self.assertEqual(outside.read_text(), "keep")
+            self.assertEqual((out / "index.png").read_bytes(), b"new")
+
+    def test_linked_state_folders_are_refused(self):
+        for linked in (module.STATE_DIR, f"{module.STATE_DIR}/out"):
+            with self.subTest(linked=linked), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "target"
+                target.mkdir()
+                worktree = Path(directory) / "w"
+                (worktree / linked).parent.mkdir(parents=True, exist_ok=True)
+                (worktree / linked).symlink_to(target)
+                with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                    module.open_out_dir(sandbox)
+                self.assertEqual(list(target.iterdir()), [])
+
+
+class PinnedWorktreeTests(unittest.TestCase):
+    def test_linked_ancestor_outside_the_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "root"
+            outside = Path(directory) / "outside" / "topic"
+            outside.mkdir(parents=True)
+            root.mkdir()
+            (root / "repo").symlink_to(outside.parent)
+            with self.assertRaises(module.SandboxError):
+                module.open_worktree(root / "repo" / "topic", root)
+
+    def test_real_worktree_is_opened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "repo" / "topic").mkdir(parents=True)
+            fd, real = module.open_worktree(root / "repo" / "topic", root)
+            os.close(fd)
+            self.assertEqual(real, root / "repo" / "topic")
+
+    def test_linked_config_and_containerfile_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside"
+            outside.write_text('name = "x"\n')
+            worktree = Path(directory) / "w"
+            worktree.mkdir()
+            (worktree / module.CONFIG_FILE).symlink_to(outside)
+            with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                module.load_config(sandbox.fd)
+            (worktree / module.CONFIG_FILE).unlink()
+            (worktree / module.CONFIG_FILE).write_text('name = "x"\n')
+            (worktree / "Containerfile").symlink_to(outside)
+            with opened(worktree) as sandbox, self.assertRaises(module.SandboxError):
+                module.load_config(sandbox.fd)
+
+    def test_context_keeps_links_as_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "secret.txt"
+            outside.write_text("outside-data")
+            worktree = Path(directory) / "w"
+            (worktree / "src").mkdir(parents=True)
+            (worktree / "src" / "app.py").write_text("print(1)")
+            (worktree / "link").symlink_to(outside)
+            (worktree / module.STATE_DIR / "out").mkdir(parents=True)
+            stream = io.BytesIO()
+            with opened(worktree) as sandbox:
+                module.write_context(sandbox.fd, stream)
+            stream.seek(0)
+            import tarfile
+            with tarfile.open(fileobj=stream) as archive:
+                members = {member.name: member for member in archive.getmembers()}
+                self.assertTrue(members["link"].issym())
+                self.assertEqual(archive.extractfile("src/app.py").read(), b"print(1)")
+            self.assertNotIn(module.STATE_DIR, members)
+            self.assertNotIn(b"outside-data", stream.getvalue())
+
+
+class ArgumentTests(unittest.TestCase):
+    def test_publish_takes_no_address(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            module.parse_args(["up", "--publish", "0.0.0.0:8080"])
+
+    def test_no_free_form_podman_flags(self):
+        for argv in (["up", "--network", "host"], ["build", "--volume", "/:/host"], ["up", "--privileged"]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit):
+                module.parse_args(argv)
+
+    def test_project_build_runs_in_the_egress_network(self):
+        sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
+        args = module.builder_args(sandbox, "builder")
+        self.assertEqual(args[args.index("--network") + 1], f"container:{sandbox.egress}")
+        self.assertEqual(args[args.index("--cap-drop") + 1], "all")
+        self.assertNotIn("NET_ADMIN", args[args.index("--cap-add") + 1])
+        self.assertIn("no-new-privileges", args)
+        self.assertFalse([arg for arg in args if arg.startswith("/w") or ":/w" in arg or "/w:" in arg])
+        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
+        self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
+        self.assertNotIn("MKNOD", module.BUILDER_CAPS)
+
+    def test_podman_uses_its_own_store(self):
+        with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
+                unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path("/r")), \
+                unittest.mock.patch.object(Path, "mkdir"), unittest.mock.patch.object(Path, "chmod"):
+            argv = module.podman_argv("ps")
+            env = module.podman_env()
+        self.assertEqual(argv, ["podman", "--root", "/s/graph", "--runroot", "/r/containers", "--tmpdir",
+                                "/r/libpod/tmp", "--network-config-dir", "/s/networks", "--volumepath", "/s/volumes",
+                                "ps"])
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/r")
+
+    def test_asset_build_uses_repo_files_only(self):
+        args = module.asset_build_args("egress", "tag")
+        self.assertEqual(args[-1], str(module.ASSETS))
+
+    def test_host_networks_add_global_ipv6_prefixes(self):
+        links = [{"addr_info": [{"local": "192.0.2.5", "prefixlen": 24},
+                                {"local": "2001:db8:1:2::5", "prefixlen": 64},
+                                {"local": "fe80::1", "prefixlen": 64}]}]
+        self.assertEqual(module.host_networks(links),
+                         ["192.0.2.5", "2001:db8:1:2::/64", "fe80::1"])
+
+    def test_podman_env_drops_host_values(self):
+        with unittest.mock.patch.dict(os.environ, {CANARY: "1", "SSH_AUTH_SOCK": "/x"}):
+            env = module.podman_env()
+        self.assertNotIn(CANARY, env)
+        self.assertNotIn("SSH_AUTH_SOCK", env)
+
+
+def lan_address():
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.connect(("192.0.2.1", 9))
+        return sock.getsockname()[0]
+
+
+class CanaryHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(CANARY_BODY.encode())
+
+    def log_message(self, *args):
+        pass
+
+
+@contextlib.contextmanager
+def host_listener():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), CanaryHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def sandbox(worktree, *args, env=None):
+    return subprocess.run([str(BIN / "hc-sandbox"), "-C", str(worktree), *args],
+                          capture_output=True, text=True, env=env)
+
+
+def probe_states(output, marker="PROBE"):
+    states = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if marker in parts and parts[-1] in ("open", "closed") and parts.index(marker) == len(parts) - 4:
+            index = parts.index(marker)
+            states[(parts[index + 1], int(parts[index + 2]))] = parts[index + 3]
+    return states
+
+
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+class ExampleEndToEnd(unittest.TestCase):
+    def test_build_up_test(self):
+        with e2e_directory() as directory:
+            worktree = Path(directory) / "hello"
+            shutil.copytree(EXAMPLE, worktree, ignore=shutil.ignore_patterns(".hc-sandbox"))
+            try:
+                for step in (["build"], ["up"], ["test"]):
+                    result = sandbox(worktree, *step)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue((worktree / ".hc-sandbox" / "out" / "index.png").stat().st_size > 1000)
+            finally:
+                sandbox(worktree, "down")
+
+
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+class BuildEscapeTests(unittest.TestCase):
+    def build_output(self, containerfile):
+        with e2e_directory() as directory:
+            worktree = Path(directory) / "build-escape"
+            worktree.mkdir()
+            (worktree / "Containerfile").write_text(containerfile)
+            (worktree / "hc-sandbox.toml").write_text('name = "build-escape"\n')
+            result = sandbox(worktree, "build")
+            return result.returncode, result.stdout + result.stderr
+
+    def test_build_cannot_fetch_from_the_host(self):
+        with host_listener() as port:
+            for host in ("127.0.0.1", "169.254.1.2", "10.0.2.2"):
+                url = f"http://{host}:{port}/canary"
+                for step in (f"ADD {url} /canary",
+                             f"RUN --network=host wget -q -T 3 -O - {url}",
+                             f"RUN wget -q -T 3 -O - {url}"):
+                    with self.subTest(step=step):
+                        code, output = self.build_output(f"FROM docker.io/library/alpine:3.22\n{step}\n")
+                        self.assertNotEqual(code, 0, output)
+                        self.assertNotIn(CANARY_BODY, output)
+
+
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+class EscapeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = e2e_directory()
+        cls.worktree = Path(cls.directory.name) / "escape"
+        cls.worktree.mkdir()
+        cls.listener = host_listener()
+        cls.host_port = cls.listener.__enter__()
+        cls.blocked = [("127.0.0.1", cls.host_port), ("169.254.1.2", cls.host_port), ("10.0.2.2", cls.host_port),
+                       ("100.100.100.100", 53)]
+        cls.public = ("1.1.1.1", 443)
+        (cls.worktree / "probe.py").write_text(PROBE)
+        (cls.worktree / "targets.json").write_text(json.dumps([*cls.blocked, cls.public]))
+        (cls.worktree / "Containerfile").write_text(CONTAINERFILE)
+        (cls.worktree / "hc-sandbox.toml").write_text('name = "escape-probe"\nport = 8000\n')
+        env = {**os.environ, CANARY: "secret-value"}
+        build = sandbox(cls.worktree, "build", env=env)
+        cls.build_output = build.stdout + build.stderr
+        assert build.returncode == 0, cls.build_output
+        up = sandbox(cls.worktree, "up", "--publish", env=env)
+        assert up.returncode == 0, up.stdout + up.stderr
+        cls.published = int(up.stdout.split("127.0.0.1:")[1].split("/")[0])
+
+    @classmethod
+    def tearDownClass(cls):
+        sandbox(cls.worktree, "down")
+        cls.listener.__exit__(None, None, None)
+        cls.directory.cleanup()
+
+    def run_in_app(self, code):
+        result = sandbox(self.worktree, "exec", "--", "python", "-c", code)
+        return result.returncode, result.stdout + result.stderr
+
+    def test_egress_filter_holds_each_host_network(self):
+        image = module.ensure_asset_image("egress")
+        networks = module.host_addresses()
+        result = module.podman("run", "--rm", "--network", "none", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                               "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c",
+                               '/etc/hc-sandbox/egress-start.sh "$@" && nft list table inet hc_sandbox', "filter",
+                               *networks, capture=True)
+        listed = set(re.findall(r"[0-9a-f.:]+(?:/[0-9]+)?", result.stdout))
+        self.assertTrue(networks)
+        for network in networks:
+            self.assertIn(network, listed)
+
+    def test_build_reaches_public_internet_only(self):
+        for marker in ("PROBE", "HOSTNET"):
+            states = probe_states(self.build_output, marker)
+            self.assertEqual(states.get(self.public), "open", (marker, self.build_output))
+            for target in self.blocked:
+                self.assertEqual(states.get(target), "closed", (marker, target))
+
+    def test_build_has_no_new_privileges(self):
+        self.assertRegex(self.build_output, r"BUILDSTATUS NoNewPrivs:\s+1")
+
+    def test_run_has_no_route_out(self):
+        result = sandbox(self.worktree, "exec", "--", "python", "probe.py", "targets.json")
+        states = probe_states(result.stdout)
+        for target in [*self.blocked, self.public]:
+            self.assertEqual(states.get(target), "closed", target)
+
+    def test_home_files_are_absent(self):
+        home = Path.home()
+        for path in (home / ".ssh", home / ".config" / "hey", home, Path("/root/.ssh")):
+            code, output = self.run_in_app(f"import os,sys; sys.exit(0 if os.path.exists({str(path)!r}) else 3)")
+            self.assertEqual(code, 3, f"{path} is visible: {output}")
+
+    def test_podman_socket_is_absent(self):
+        code, output = self.run_in_app(
+            "import os,stat,sys\n"
+            "found=[os.path.join(r,n) for r,d,f in os.walk('/') if not r.startswith(('/proc','/sys'))"
+            " for n in f if stat.S_ISSOCK(os.lstat(os.path.join(r,n)).st_mode)]\n"
+            "print(found); sys.exit(1 if found else 0)")
+        self.assertEqual(code, 0, output)
+
+    def test_host_env_is_absent(self):
+        code, output = self.run_in_app(f"import os; print(sorted(os.environ)); assert {CANARY!r} not in os.environ")
+        self.assertEqual(code, 0, output)
+
+    def test_capabilities_are_dropped(self):
+        code, output = self.run_in_app("print(open('/proc/self/status').read())")
+        self.assertRegex(output, r"CapEff:\s+0000000000000000")
+        self.assertRegex(output, r"NoNewPrivs:\s+1")
+
+    def test_worktree_is_not_mounted(self):
+        code, output = self.run_in_app(
+            f"import os,sys; sys.exit(3 if os.path.exists('/work') or os.path.exists({str(self.worktree)!r}) else 0)")
+        self.assertEqual(code, 0, output)
+
+    def test_user_podman_sees_nothing_from_the_sandbox(self):
+        env = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+               if key in os.environ}
+        for command in (["ps", "-a"], ["pod", "ls"], ["images"], ["network", "ls"], ["volume", "ls"]):
+            with self.subTest(command=command):
+                result = subprocess.run(["podman", *command, "--format", "json"], capture_output=True, text=True,
+                                        env=env, check=True)
+                self.assertNotIn("hcsb", result.stdout)
+                self.assertNotIn("hc-sandbox", result.stdout)
+
+    def test_published_port_binds_loopback_only(self):
+        listeners = subprocess.run(["ss", "-ltnH"], capture_output=True, text=True, check=True).stdout
+        bound = [line.split()[3] for line in listeners.splitlines() if line.split()[3].endswith(f":{self.published}")]
+        self.assertEqual(bound, [f"127.0.0.1:{self.published}"])
+        with socket.create_connection(("127.0.0.1", self.published), timeout=3):
+            pass
+        with self.assertRaises(OSError):
+            socket.create_connection((lan_address(), self.published), timeout=3)
+
+
+if __name__ == "__main__":
+    unittest.main()
