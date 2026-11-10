@@ -60,22 +60,31 @@ See `examples/sandbox-hello` for a full example.
 |------|------------|----------|
 | Network | Public internet through a filter | Internal network, no route out |
 | Host, LAN, tailnet, link-local | Refused by the filter | No route |
-| Mounts | Build context is the worktree; `/cache` | `/work` (worktree, read-only); `/cache`; `/out` for the browser only |
-| Capabilities | CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID in the user namespace | None |
+| Mounts | `/ctx` (worktree, read-only); `/cache`; the layer store | `/work` (worktree, read-only); `/cache`; `/out` for the browser only |
+| Capabilities | Each step: CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, in the user namespace | None |
 | `no-new-privileges` | Yes | Yes |
 | Host environment | None | None |
 | Podman socket | Not mounted | Not mounted |
-| Memory, processes, CPUs | 4 GB | 2 GB, 512, 2 |
+| Memory, processes, CPUs | 4 GB, 1024, 4 | 2 GB, 512, 2 |
 | Published port | None | `127.0.0.1` only, with `--publish` |
 
-### The build filter
+### The build
 
-`podman build` cannot use a named network in rootless mode. The wrapper
-starts a small egress container on a `pasta` network with `--no-map-gw`. The
-container loads `hc-sandbox.d/egress.nft`. The rules refuse private, loopback,
-link-local, carrier-grade NAT (the tailnet range), and multicast addresses,
-and each address of the host. IPv6 traffic must go to `2000::/3`. The build
-joins the network namespace of this container. The build has no
+The host `podman build` runs only the files in `hc-sandbox.d/`. These are
+the egress, builder, and browser images.
+
+A project build runs in the builder container. The builder runs `buildah`
+with `--isolation chroot` on the worktree, which it sees read-only at `/ctx`.
+Each `RUN` step gets only the capabilities in the table. The builder writes an
+image archive to a temporary folder. The host loads it with `podman load`.
+The layers stay in the `hcsb-store-<name>` volume for the next build.
+
+The builder joins the network of a small egress container on a `pasta`
+network with `--no-map-gw`. So base image pulls, `ADD <url>`, and
+`RUN --network=host` all use that network. The egress container loads
+`hc-sandbox.d/egress.nft`. The rules refuse private, loopback, link-local,
+carrier-grade NAT (the tailnet range), and multicast addresses, and each
+address of the host. IPv6 traffic must go to `2000::/3`. The builder has no
 `NET_ADMIN`, so it cannot change the rules.
 
 DNS goes to the `pasta` forwarder at `169.254.1.1`, and from there to the host
@@ -96,8 +105,12 @@ also refuses a path with characters that break a Podman mount.
   worktree contents.
 - DNS in the build step uses the host resolver. A build can resolve tailnet
   names. It cannot connect to them.
-- The app can write to the cache volume. The cache volume is shared by all
-  worktrees of a project.
+- The app can write to the cache volume. The cache volume and the layer
+  store are shared by all worktrees of a project.
+- The builder has `SYS_ADMIN` in its user namespace, for `buildah`. The
+  `RUN` steps do not.
+- The builder has no registry credentials. A private base image does not
+  work.
 - Chromium runs with `--no-sandbox`. The container is its sandbox.
 - The worktree is visible to the app, read-only. Do not keep secrets in the
   worktree.

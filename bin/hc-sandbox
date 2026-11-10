@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from pathlib import Path
@@ -20,9 +21,18 @@ STATE_DIR = ".hc-sandbox"
 LABEL = "hc-sandbox"
 PASTA_DNS = "169.254.1.1"
 BUILD_CAPS = "CHOWN,DAC_OVERRIDE,FOWNER,FSETID,SETUID,SETGID"
+BUILDER_CAPS = BUILD_CAPS + ",SYS_ADMIN,SYS_CHROOT,MKNOD"
+STEP_CAPS = ",".join(f"CAP_{cap}" for cap in BUILD_CAPS.split(","))
+BUILDER_STORE = "/var/lib/containers"
 HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
 LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
 BUILD_LIMITS = ["--memory", "4g"]
+BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
+BUILD_SCRIPT = (
+    'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
+    '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx '
+    '&& buildah --storage-driver vfs push hc-sandbox-build oci-archive:/out/image.tar'
+)
 PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 PAGE_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*$")
@@ -156,6 +166,14 @@ class Sandbox:
         return f"hcsb-{self.id}-egress"
 
     @property
+    def builder(self):
+        return f"hcsb-{self.id}-build"
+
+    @property
+    def store(self):
+        return f"hcsb-store-{self.config.name}"
+
+    @property
     def cache(self):
         return f"hcsb-cache-{self.config.name}"
 
@@ -205,25 +223,30 @@ def asset_tag(kind):
     return f"localhost/hc-sandbox/{kind}:{digest.hexdigest()[:12]}"
 
 
-def build_args(network, cache_path, image, containerfile, context, labels):
-    return ["build", "--pull=missing", "--http-proxy=false", "--network", network, "--dns", PASTA_DNS,
-            "--cap-drop", "all", "--cap-add", BUILD_CAPS, "--security-opt", "no-new-privileges",
-            *BUILD_LIMITS, "--volume", f"{cache_path}:/cache", *labels,
-            "--tag", image, "--file", str(containerfile), str(context)]
+def asset_build_args(kind, tag):
+    return ["build", "--pull=missing", "--http-proxy=false", "--network", PASTA_NETWORK,
+            "--cap-drop", "all", "--cap-add", BUILD_CAPS, "--security-opt", "no-new-privileges", *BUILD_LIMITS,
+            "--label", f"{LABEL}=1", "--tag", tag, "--file", str(ASSETS / f"{kind}.Containerfile"), str(ASSETS)]
 
 
-def ensure_cache(sandbox):
-    if not exists("volume", sandbox.cache):
-        podman("volume", "create", "--label", f"{LABEL}=1", sandbox.cache, quiet=True)
-    return podman("volume", "inspect", "--format", "{{.Mountpoint}}", sandbox.cache, capture=True).stdout.strip()
+def builder_args(sandbox, builder_image, out_dir):
+    return ["run", "--rm", "--name", sandbox.builder, *sandbox.labels(), "--network", f"container:{sandbox.egress}",
+            "--cap-drop", "all", "--cap-add", BUILDER_CAPS, "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
+            "--volume", f"{sandbox.worktree}:/ctx:ro", "--volume", f"{sandbox.store}:{BUILDER_STORE}",
+            "--volume", f"{sandbox.cache}:/cache", "--volume", f"{out_dir}:/out",
+            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
 
 
-def ensure_asset_image(kind, network, cache_path):
+def ensure_volume(name):
+    if not exists("volume", name):
+        podman("volume", "create", "--label", f"{LABEL}=1", name, quiet=True)
+
+
+def ensure_asset_image(kind):
     tag = asset_tag(kind)
     if not exists("image", tag):
         print(f"hc-sandbox: build the {kind} image", file=sys.stderr)
-        podman(*build_args(network, cache_path, tag, ASSETS / f"{kind}.Containerfile", ASSETS,
-                           ["--label", f"{LABEL}=1"]))
+        podman(*asset_build_args(kind, tag))
     return tag
 
 
@@ -237,28 +260,37 @@ def wait_until(check, timeout, interval=0.5):
 
 
 @contextlib.contextmanager
-def egress_namespace(sandbox, cache_path):
-    image = ensure_asset_image("egress", PASTA_NETWORK, cache_path)
+def egress_filter(sandbox):
+    image = ensure_asset_image("egress")
     podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
     podman("run", "--detach", "--name", sandbox.egress, *sandbox.labels(), "--network", PASTA_NETWORK,
-           "--cap-drop", "all", "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS,
-           image, *host_addresses(), quiet=True)
+           "--dns", PASTA_DNS, "--dns-search", ".", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+           "--security-opt", "no-new-privileges", *LIMITS, image, *host_addresses(), quiet=True)
     try:
         ready = wait_until(lambda: podman("exec", sandbox.egress, "test", "-f", "/run/hc-sandbox-ready",
                                           check=False, quiet=True).returncode == 0, 30)
         require(ready, "the egress filter did not start")
-        pid = podman("inspect", "--format", "{{.State.Pid}}", sandbox.egress, capture=True).stdout.strip()
-        yield f"ns:/proc/{pid}/ns/net"
+        yield
     finally:
         podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
 
 
+def load_image(archive, image):
+    require(archive.is_file() and not archive.is_symlink(), "the build wrote no image")
+    result = podman("load", "--input", str(archive), capture=True)
+    loaded = re.search(r"Loaded image: (\S+)", result.stdout)
+    require(loaded, "podman load gave no image")
+    podman("tag", loaded.group(1), image, quiet=True)
+
+
 def build(sandbox):
-    cache_path = ensure_cache(sandbox)
-    with egress_namespace(sandbox, cache_path) as network:
-        ensure_asset_image("browser", network, cache_path)
-        podman(*build_args(network, cache_path, sandbox.image, sandbox.worktree / sandbox.config.containerfile,
-                           sandbox.worktree, sandbox.labels()))
+    ensure_volume(sandbox.cache)
+    ensure_volume(sandbox.store)
+    builder_image = ensure_asset_image("builder")
+    ensure_asset_image("browser")
+    with tempfile.TemporaryDirectory(prefix="hc-sandbox-") as out_dir, egress_filter(sandbox):
+        podman(*builder_args(sandbox, builder_image, out_dir))
+        load_image(Path(out_dir) / "image.tar", sandbox.image)
     print(f"hc-sandbox: built {sandbox.image}")
 
 
@@ -291,6 +323,7 @@ def app_running(sandbox):
 def down(sandbox, announce=True):
     podman("pod", "rm", "--force", "--time", "2", sandbox.pod, check=False, quiet=True)
     podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
+    podman("rm", "--force", "--time", "0", sandbox.builder, check=False, quiet=True)
     podman("network", "rm", "--force", sandbox.network, check=False, quiet=True)
     if announce:
         print(f"hc-sandbox: {sandbox.pod} is down")
@@ -302,7 +335,7 @@ def up(sandbox, publish):
     require(exists("image", browser_image), "no browser image: run hc-sandbox build first")
     require(not publish or sandbox.config.port, "--publish needs a port in the config")
     down(sandbox, announce=False)
-    ensure_cache(sandbox)
+    ensure_volume(sandbox.cache)
     ensure_out_dir(sandbox)
     podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
     ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []

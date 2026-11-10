@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import unittest.mock
 
 sys.dont_write_bytecode = True
@@ -26,6 +27,7 @@ loader.exec_module(module)
 EXAMPLE = BIN.parent / "examples" / "sandbox-hello"
 E2E = os.environ.get("HC_SANDBOX_E2E") == "1"
 CANARY = "HC_SANDBOX_CANARY"
+CANARY_BODY = "hc-sandbox-canary-7f3a"
 
 PROBE = r'''
 import json, os, socket, sys
@@ -115,12 +117,20 @@ class ArgumentTests(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 module.parse_args(argv)
 
-    def test_build_args_limit_the_build(self):
-        args = module.build_args("ns:/proc/1/ns/net", "/cache-path", "img", Path("/w/Containerfile"), Path("/w"), [])
-        self.assertIn("--http-proxy=false", args)
+    def test_project_build_runs_in_the_egress_network(self):
+        sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
+        args = module.builder_args(sandbox, "builder", "/tmp/out")
+        self.assertEqual(args[args.index("--network") + 1], f"container:{sandbox.egress}")
         self.assertEqual(args[args.index("--cap-drop") + 1], "all")
+        self.assertNotIn("NET_ADMIN", args[args.index("--cap-add") + 1])
         self.assertIn("no-new-privileges", args)
-        self.assertNotIn("host", args)
+        self.assertIn("/w:/ctx:ro", args)
+        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
+        self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
+
+    def test_asset_build_uses_repo_files_only(self):
+        args = module.asset_build_args("egress", "tag")
+        self.assertEqual(args[-1], str(module.ASSETS))
 
     def test_podman_env_drops_host_values(self):
         with unittest.mock.patch.dict(os.environ, {CANARY: "1", "SSH_AUTH_SOCK": "/x"}):
@@ -141,25 +151,26 @@ def lan_address():
         return sock.getsockname()[0]
 
 
+class CanaryHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(CANARY_BODY.encode())
+
+    def log_message(self, *args):
+        pass
+
+
 @contextlib.contextmanager
 def host_listener():
-    server = socket.create_server(("0.0.0.0", 0))
-    server.settimeout(0.5)
-    stop = threading.Event()
-
-    def accept():
-        while not stop.is_set():
-            with contextlib.suppress(OSError):
-                server.accept()[0].close()
-
-    thread = threading.Thread(target=accept, daemon=True)
+    server = ThreadingHTTPServer(("0.0.0.0", 0), CanaryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.getsockname()[1]
+        yield server.server_address[1]
     finally:
-        stop.set()
-        thread.join()
-        server.close()
+        server.shutdown()
+        server.server_close()
 
 
 def sandbox(worktree, *args, env=None):
@@ -190,6 +201,31 @@ class ExampleEndToEnd(unittest.TestCase):
                 self.assertTrue((worktree / ".hc-sandbox" / "out" / "index.png").stat().st_size > 1000)
             finally:
                 sandbox(worktree, "down")
+
+
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+class BuildEscapeTests(unittest.TestCase):
+    def build_output(self, containerfile):
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory) / "build-escape"
+            worktree.mkdir()
+            (worktree / "Containerfile").write_text(containerfile)
+            (worktree / "hc-sandbox.toml").write_text('name = "build-escape"\n')
+            result = sandbox(worktree, "build")
+            return result.returncode, result.stdout + result.stderr
+
+    def test_build_cannot_fetch_from_the_host(self):
+        with host_listener() as port:
+            for address in ["127.0.0.1", *host_addresses()]:
+                host = f"[{address}]" if ":" in address else address
+                url = f"http://{host}:{port}/canary"
+                for step in (f"ADD {url} /canary",
+                             f"RUN --network=host wget -q -T 3 -O - {url}",
+                             f"RUN wget -q -T 3 -O - {url}"):
+                    with self.subTest(step=step):
+                        code, output = self.build_output(f"FROM docker.io/library/alpine:3.22\n{step}\n")
+                        self.assertNotEqual(code, 0, output)
+                        self.assertNotIn(CANARY_BODY, output)
 
 
 @unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
