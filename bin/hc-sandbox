@@ -23,7 +23,8 @@ STATE_DIR = ".hc-sandbox"
 LABEL = "hc-sandbox"
 PASTA_DNS = "169.254.1.1"
 BUILD_CAPS = "CHOWN,DAC_OVERRIDE,FOWNER,FSETID,SETUID,SETGID"
-BUILDER_CAPS = BUILD_CAPS + ",SYS_ADMIN,SYS_CHROOT,MKNOD"
+BUILDER_CAPS = BUILD_CAPS + ",SYS_ADMIN,SYS_CHROOT"
+ASSET_BUILD_CAPS = BUILD_CAPS + ",SETFCAP"
 STEP_CAPS = ",".join(f"CAP_{cap}" for cap in BUILD_CAPS.split(","))
 BUILDER_STORE = "/var/lib/containers"
 HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
@@ -38,7 +39,7 @@ BUILD_SCRIPT = (
     'buildah --storage-driver vfs push hc-sandbox-build oci-archive:/tmp/image.tar >&2; '
     'cat /tmp/image.tar'
 )
-PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+PODMAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 PAGE_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*$")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._/+@-]+$")
@@ -119,8 +120,12 @@ def find_worktree(start):
     raise SandboxError(f"no {CONFIG_FILE} in {start} or its parents")
 
 
+def home_dir():
+    return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+
+
 def worktrees_root():
-    return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve() / ".herdr" / "worktrees"
+    return home_dir() / ".herdr" / "worktrees"
 
 
 def check_worktree(worktree, root):
@@ -223,13 +228,42 @@ class Sandbox:
         return ["--label", f"{LABEL}=1", "--label", f"{LABEL}.worktree={self.worktree}"]
 
 
+def user_runtime_dir():
+    return Path(f"/run/user/{os.getuid()}")
+
+
+def sandbox_runtime_dir():
+    return user_runtime_dir() / "hc-sandbox"
+
+
+def sandbox_storage_dir():
+    return home_dir() / ".local" / "share" / "hc-sandbox"
+
+
 def podman_env():
-    return {key: os.environ[key] for key in PODMAN_ENV_KEYS if key in os.environ}
+    env = {key: os.environ[key] for key in PODMAN_ENV_KEYS if key in os.environ}
+    env["XDG_RUNTIME_DIR"] = str(sandbox_runtime_dir())
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={user_runtime_dir() / 'bus'}"
+    return env
+
+
+def podman_globals():
+    storage, runtime = sandbox_storage_dir(), sandbox_runtime_dir()
+    return ["--root", str(storage / "graph"), "--runroot", str(runtime / "containers"),
+            "--tmpdir", str(runtime / "libpod" / "tmp"), "--network-config-dir", str(storage / "networks"),
+            "--volumepath", str(storage / "volumes")]
+
+
+def podman_argv(*args):
+    for path in (sandbox_storage_dir(), sandbox_runtime_dir()):
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.chmod(0o700)
+    return ["podman", *podman_globals(), *args]
 
 
 def podman(*args, capture=False, check=True, quiet=False):
     result = subprocess.run(
-        ["podman", *args],
+        podman_argv(*args),
         env=podman_env(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE if capture or quiet else None,
@@ -263,7 +297,7 @@ def asset_tag(kind):
 
 def asset_build_args(kind, tag):
     return ["build", "--pull=missing", "--http-proxy=false", "--network", PASTA_NETWORK,
-            "--cap-drop", "all", "--cap-add", BUILD_CAPS, "--security-opt", "no-new-privileges", *BUILD_LIMITS,
+            "--cap-drop", "all", "--cap-add", ASSET_BUILD_CAPS, "--security-opt", "no-new-privileges", *BUILD_LIMITS,
             "--label", f"{LABEL}=1", "--tag", tag, "--file", str(ASSETS / f"{kind}.Containerfile"), str(ASSETS)]
 
 
@@ -302,12 +336,12 @@ def egress_filter(sandbox):
     image = ensure_asset_image("egress")
     podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
     podman("run", "--detach", "--name", sandbox.egress, *sandbox.labels(), "--network", PASTA_NETWORK,
-           "--dns", PASTA_DNS, "--dns-search", ".", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
-           "--security-opt", "no-new-privileges", *LIMITS, image, *host_addresses(), quiet=True)
+           "--dns", PASTA_DNS, "--dns-search", ".", *HARDENING, *LIMITS, "--entrypoint", "sleep", image, "infinity",
+           quiet=True)
     try:
-        ready = wait_until(lambda: podman("exec", sandbox.egress, "test", "-f", "/run/hc-sandbox-ready",
-                                          check=False, quiet=True).returncode == 0, 30)
-        require(ready, "the egress filter did not start")
+        podman("run", "--rm", *sandbox.labels(), "--network", f"container:{sandbox.egress}", "--cap-drop", "all",
+               "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS, image, *host_addresses(),
+               quiet=True)
         yield
     finally:
         podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
@@ -350,9 +384,9 @@ def write_context(worktree_fd, stream):
 
 
 def run_builder(sandbox, builder_image):
-    builder = subprocess.Popen(["podman", *builder_args(sandbox, builder_image)], env=podman_env(),
+    builder = subprocess.Popen(podman_argv(*builder_args(sandbox, builder_image)), env=podman_env(),
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    loader = subprocess.Popen(["podman", "load"], env=podman_env(), stdin=builder.stdout,
+    loader = subprocess.Popen(podman_argv("load"), env=podman_env(), stdin=builder.stdout,
                               stdout=subprocess.PIPE, text=True)
     builder.stdout.close()
     with contextlib.suppress(BrokenPipeError):
@@ -413,7 +447,7 @@ def open_out_dir(sandbox):
 
 
 def copy_screenshot(sandbox, name):
-    result = subprocess.run(["podman", "exec", sandbox.browser, "cat", f"/tmp/{name}"], env=podman_env(),
+    result = subprocess.run(podman_argv("exec", sandbox.browser, "cat", f"/tmp/{name}"), env=podman_env(),
                             capture_output=True)
     if result.returncode or not result.stdout:
         return False
@@ -431,7 +465,7 @@ def published_port(sandbox):
 
 
 def app_url(sandbox, path):
-    return f"http://127.0.0.1:{sandbox.config.port}{path}"
+    return f"http://{sandbox.pod}:{sandbox.config.port}{path}"
 
 
 def app_ready(sandbox):
@@ -463,7 +497,7 @@ def up(sandbox, publish):
     os.close(open_out_dir(sandbox))
     podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
     ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []
-    podman("pod", "create", "--name", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
+    podman("pod", "create", "--name", sandbox.pod, "--hostname", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS,
            "--volume", f"{sandbox.cache}:/cache", sandbox.image, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
@@ -515,7 +549,7 @@ def exec_command(sandbox, command):
     require(command, "give a command after --")
     require(app_running(sandbox), "the app is not running: run hc-sandbox up")
     interactive = ["--interactive", "--tty"] if sys.stdin.isatty() and sys.stdout.isatty() else []
-    return subprocess.run(["podman", "exec", *interactive, sandbox.app, *command], env=podman_env()).returncode
+    return subprocess.run(podman_argv("exec", *interactive, sandbox.app, *command), env=podman_env()).returncode
 
 
 def logs(sandbox, tail):

@@ -7,5 +7,3 @@ for address in "$@"; do
     *) nft add element inet hc_sandbox host4 "{ $address }" ;;
   esac
 done
-touch /run/hc-sandbox-ready
-exec sleep infinity

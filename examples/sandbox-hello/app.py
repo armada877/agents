@@ -1,5 +1,6 @@
 import http.server
 import json
+import socket
 
 PAGE = """<!doctype html>
 <html>
@@ -37,7 +38,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def serve(port):
-    http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    http.server.ThreadingHTTPServer((socket.gethostbyname(socket.gethostname()), port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

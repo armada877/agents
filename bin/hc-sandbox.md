@@ -44,8 +44,10 @@ expect = "count is "
 - `name` is the project name. It names the images and the cache volume.
 - `containerfile` is a relative path in the worktree. The default is
   `Containerfile`.
-- `port` is the port that the app listens on in the pod. Listen on `0.0.0.0`
-  in the pod, so that `--publish` works.
+- `port` is the port that the app listens on in the pod. Listen on the pod
+  address. The pod host name gives this address, for example
+  `socket.gethostbyname(socket.gethostname())` in Python. The browser and
+  `--publish` use this address.
 - `test_command` runs in the app container during `test`.
 - Each page in `pages` gets a screenshot. The page text must contain
   `expect`. The browser runs page scripts and WebGL before it reads the text.
@@ -72,7 +74,9 @@ See `examples/sandbox-hello` for a full example.
 ### The build
 
 The host `podman build` runs only the files in `hc-sandbox.d/`. These are
-the egress, builder, and browser images.
+the egress, builder, and browser images. These builds also get `SETFCAP`,
+because the builder packages set file capabilities. Project builds do not
+get it.
 
 A project build runs in the builder container. The wrapper sends a copy of
 the worktree to the builder as a tar stream. It reads the worktree through one
@@ -85,8 +89,10 @@ The layers stay in the `hcsb-store-<name>` volume for the next build.
 
 The builder joins the network of a small egress container on a `pasta`
 network with `--no-map-gw`. So base image pulls, `ADD <url>`, and
-`RUN --network=host` all use that network. The egress container loads
-`hc-sandbox.d/egress.nft`. The rules refuse private, loopback, link-local,
+`RUN --network=host` all use that network. The egress container has no
+capabilities. It only keeps the network open. A second container joins that
+network with only `NET_ADMIN`, loads `hc-sandbox.d/egress.nft`, and stops
+before the build starts. The rules refuse private, loopback, link-local,
 carrier-grade NAT (the tailnet range), and multicast addresses, and each
 address of the host. IPv6 traffic must go to `2000::/3`. The builder has no
 `NET_ADMIN`, so it cannot change the rules.
@@ -103,6 +109,22 @@ from its image. Rebuild to change it.
 The browser container has headless Chromium. The wrapper copies each
 screenshot from the browser into `.hc-sandbox/out/` in the worktree. Git
 ignores this folder.
+
+### Podman storage
+
+The wrapper does not use the Podman storage of the user. It gives each
+`podman` command its own folders:
+
+| Item | Folder |
+|------|--------|
+| Images and containers | `~/.local/share/hc-sandbox/graph` |
+| Volumes | `~/.local/share/hc-sandbox/volumes` |
+| Networks | `~/.local/share/hc-sandbox/networks` |
+| Run state, runtime folder | `/run/user/<uid>/hc-sandbox` |
+
+So a plain `podman ps -a`, `podman images`, `podman network ls`, or
+`podman volume ls` shows nothing from the sandbox. Live services do not see
+the sandbox. To see the sandbox, use `hc-sandbox ls`.
 
 ### The worktree
 
@@ -122,8 +144,11 @@ file and does not write through an old link.
   names. It cannot connect to them.
 - The app can write to the cache volume. The cache volume and the layer
   store are shared by all worktrees of a project.
-- The builder has `SYS_ADMIN` in its user namespace, for `buildah`. The
-  `RUN` steps do not.
+- The builder has `SYS_ADMIN` and `SYS_CHROOT` in the user namespace of the
+  sandbox store. `buildah` needs `SYS_ADMIN` for its mounts. Without it,
+  `buildah` tries to make its own user namespace and cannot write the ID map.
+  `buildah --isolation chroot` needs `SYS_CHROOT` for each `RUN` step. The
+  `RUN` steps get neither capability. The builder does not get `MKNOD`.
 - The builder has no registry credentials. A private base image does not
   work.
 - Chromium runs with `--no-sandbox`. The container is its sandbox.
@@ -147,8 +172,10 @@ They make temporary worktrees in `~/.herdr/worktrees/hc-sandbox-test`:
 HC_SANDBOX_E2E=1 bin/test-hc-sandbox
 ```
 
-The escape tests start a listener on the host. They check that the build and
+The escape tests start a listener on `127.0.0.1` and on each host address.
+Nothing binds `0.0.0.0`. The tests check that the build and
 the app cannot reach it on any host address, or reach the tailnet. They also
 check that the app cannot reach the internet, read the home folder, find a
 Podman socket, read the host environment, or write to the worktree. They check
-that a published port binds to `127.0.0.1` only.
+that a published port binds to `127.0.0.1` only. While the sandbox runs, they
+check that the plain `podman` commands of the user show nothing from it.

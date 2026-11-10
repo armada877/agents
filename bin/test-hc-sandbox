@@ -272,6 +272,18 @@ class ArgumentTests(unittest.TestCase):
         self.assertFalse([arg for arg in args if arg.startswith("/w") or ":/w" in arg or "/w:" in arg])
         self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
+        self.assertNotIn("MKNOD", module.BUILDER_CAPS)
+
+    def test_podman_uses_its_own_store(self):
+        with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
+                unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path("/r")), \
+                unittest.mock.patch.object(Path, "mkdir"), unittest.mock.patch.object(Path, "chmod"):
+            argv = module.podman_argv("ps")
+            env = module.podman_env()
+        self.assertEqual(argv, ["podman", "--root", "/s/graph", "--runroot", "/r/containers", "--tmpdir",
+                                "/r/libpod/tmp", "--network-config-dir", "/s/networks", "--volumepath", "/s/volumes",
+                                "ps"])
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/r")
 
     def test_asset_build_uses_repo_files_only(self):
         args = module.asset_build_args("egress", "tag")
@@ -306,16 +318,30 @@ class CanaryHandler(BaseHTTPRequestHandler):
         pass
 
 
+class CanaryServer6(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+def canary_server(address, port):
+    server_class = CanaryServer6 if ":" in address else ThreadingHTTPServer
+    server = server_class((address, port), CanaryHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 @contextlib.contextmanager
 def host_listener():
-    server = ThreadingHTTPServer(("0.0.0.0", 0), CanaryHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    servers = [canary_server("127.0.0.1", 0)]
+    port = servers[0].server_address[1]
     try:
-        yield server.server_address[1]
+        for address in host_addresses():
+            if address != "127.0.0.1":
+                servers.append(canary_server(address, port))
+        yield port
     finally:
-        server.shutdown()
-        server.server_close()
+        for server in servers:
+            server.shutdown()
+            server.server_close()
 
 
 def sandbox(worktree, *args, env=None):
@@ -453,6 +479,16 @@ class EscapeTests(unittest.TestCase):
         code, output = self.run_in_app(
             f"import os,sys; sys.exit(3 if os.path.exists('/work') or os.path.exists({str(self.worktree)!r}) else 0)")
         self.assertEqual(code, 0, output)
+
+    def test_user_podman_sees_nothing_from_the_sandbox(self):
+        env = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+               if key in os.environ}
+        for command in (["ps", "-a"], ["pod", "ls"], ["images"], ["network", "ls"], ["volume", "ls"]):
+            with self.subTest(command=command):
+                result = subprocess.run(["podman", *command, "--format", "json"], capture_output=True, text=True,
+                                        env=env, check=True)
+                self.assertNotIn("hcsb", result.stdout)
+                self.assertNotIn("hc-sandbox", result.stdout)
 
     def test_published_port_binds_loopback_only(self):
         listeners = subprocess.run(["ss", "-ltnH"], capture_output=True, text=True, check=True).stdout
