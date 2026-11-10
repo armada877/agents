@@ -24,5 +24,9 @@ jobs:
         run: |
           for test in bin/test-*; do
             echo "== $test"
+            if ! command -v hc >/dev/null && grep -q '"hc", "server"' "$test"; then
+              echo "skip: needs hc"
+              continue
+            fi
             "$test"
           done
