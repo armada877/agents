@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -305,12 +306,6 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("SSH_AUTH_SOCK", env)
 
 
-def host_addresses():
-    output = subprocess.run(["ip", "-j", "addr"], capture_output=True, text=True, check=True).stdout
-    return sorted({info["local"] for link in json.loads(output) for info in link.get("addr_info", [])
-                   if not info["local"].startswith("fe80")})
-
-
 def lan_address():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.connect(("192.0.2.1", 9))
@@ -336,41 +331,6 @@ def host_listener():
     finally:
         server.shutdown()
         server.server_close()
-
-
-def is_loopback(address):
-    return address.startswith("127.") or address in ("::1", "::ffff:127.0.0.1")
-
-
-def listener_addresses(local, addresses):
-    address = local.rsplit(":", 1)[0].strip("[]").split("%")[0]
-    if address in ("0.0.0.0", "*"):
-        return [item for item in addresses if ":" not in item]
-    if address == "::":
-        return [item for item in addresses if ":" in item]
-    return [address] if address in addresses else []
-
-
-def reachable(address, port):
-    try:
-        with socket.create_connection((address, port), timeout=1):
-            return True
-    except OSError:
-        return False
-
-
-def host_service_targets(per_address=3):
-    addresses = [address for address in host_addresses() if not is_loopback(address)]
-    listeners = subprocess.run(["ss", "-ltnH"], capture_output=True, text=True, check=True).stdout
-    targets = {}
-    for line in listeners.splitlines():
-        local = line.split()[3]
-        port = int(local.rsplit(":", 1)[1])
-        for address in listener_addresses(local, addresses):
-            found = targets.setdefault(address, [])
-            if len(found) < per_address and port not in found and reachable(address, port):
-                found.append(port)
-    return [(address, port) for address, ports in sorted(targets.items()) for port in ports]
 
 
 def sandbox(worktree, *args, env=None):
@@ -436,9 +396,8 @@ class EscapeTests(unittest.TestCase):
         cls.worktree.mkdir()
         cls.listener = host_listener()
         cls.host_port = cls.listener.__enter__()
-        cls.services = host_service_targets()
         cls.blocked = [("127.0.0.1", cls.host_port), ("169.254.1.2", cls.host_port), ("10.0.2.2", cls.host_port),
-                       ("100.100.100.100", 53), *cls.services]
+                       ("100.100.100.100", 53)]
         cls.public = ("1.1.1.1", 443)
         (cls.worktree / "probe.py").write_text(PROBE)
         (cls.worktree / "targets.json").write_text(json.dumps([*cls.blocked, cls.public]))
@@ -462,11 +421,17 @@ class EscapeTests(unittest.TestCase):
         result = sandbox(self.worktree, "exec", "--", "python", "-c", code)
         return result.returncode, result.stdout + result.stderr
 
-    def test_host_services_are_reachable_from_host(self):
-        if not self.services:
-            self.skipTest("the host has no listener on a non-loopback address")
-        for address, port in self.services:
-            self.assertTrue(reachable(address, port), (address, port))
+    def test_egress_filter_holds_each_host_network(self):
+        image = module.ensure_asset_image("egress")
+        networks = module.host_addresses()
+        result = module.podman("run", "--rm", "--network", "none", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                               "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c",
+                               '/etc/hc-sandbox/egress-start.sh "$@" && nft list table inet hc_sandbox', "filter",
+                               *networks, capture=True)
+        listed = set(re.findall(r"[0-9a-f.:]+(?:/[0-9]+)?", result.stdout))
+        self.assertTrue(networks)
+        for network in networks:
+            self.assertIn(network, listed)
 
     def test_build_reaches_public_internet_only(self):
         for marker in ("PROBE", "HOSTNET"):

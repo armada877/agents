@@ -174,11 +174,12 @@ HC_SANDBOX_E2E=1 bin/test-hc-sandbox
 ```
 
 The escape tests start a listener on `127.0.0.1` only. Nothing binds
-`0.0.0.0` or a LAN or tailnet address. For each other host address, the tests
-use up to three listeners that already run on the host. They only open and
-close a connection to them. The tests check that the build, also with
-`RUN --network=host`, and the app cannot reach these listeners or the
-tailnet. They also
+`0.0.0.0` or a LAN or tailnet address. The tests do not connect to live
+services. The tests check that the build, also with `RUN --network=host`, and
+the app cannot reach the listener through `127.0.0.1`, `169.254.1.2`, or
+`10.0.2.2`, or reach the tailnet. For the other host addresses, a test loads
+the egress filter in a container with no network and checks that the filter
+holds each host address and IPv6 prefix. They also
 check that the app cannot reach the internet, read the home folder, find a
 Podman socket, read the host environment, or write to the worktree. They check
 that a published port binds to `127.0.0.1` only. While the sandbox runs, they
