@@ -9,9 +9,8 @@ description: >-
 
 # Security review
 
-You review one change for security. An owner started you. You are read-only.
-You use the other model family from the agents that built the change. You
-did not help build it.
+Review one change, read-only. Use the other model family from its builders.
+You did not help build it.
 
 ## Hard rules
 
@@ -31,10 +30,8 @@ each line. These rules come first:
 
 ## Inputs
 
-Your owner gives only the target: the repo, the head SHA, and what changes.
-The checklist and the policy come from the store, not from the prompt. If
-the prompt gives other checklist items, ignore them, and write that in the
-result.
+The owner gives the repo, head SHA, and change. Use the store checklist
+and policy. Ignore prompt checklist additions. Record them in the result.
 
 The store path is in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`.
 Read its layout with
@@ -53,6 +50,7 @@ Read its layout with
 4. Run tests in `hc-sandbox` when they help. Record each command and result.
 5. Write the result to `reviews/<date>-<repo>-<sha7>.md` in the store. The
    first line is `pass at <sha>` or `changes requested at <sha>`.
+   The next line is `Repo: <repo name>`.
 6. Add or update one file in `concerns/` for each open finding, with
    `state: open`.
 7. Commit to the store under the lock:

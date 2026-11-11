@@ -31,6 +31,7 @@ with `cat "$(realpath <this skill's base directory>)/../system-store.md"`.
 
 1. Read the store: `inventory/services.toml`, `policy/access.md`, open
    `concerns/`, and the last lines of `deploys.log`.
+   Read the deploy command docs. It refuses some services. Never force it.
 2. Capture only these read-only outputs in the store under
    `fixtures/<service>/`. Never capture environment values, command lines,
    or file contents:
@@ -45,14 +46,15 @@ with `cat "$(realpath <this skill's base directory>)/../system-store.md"`.
 4. Get one final commit review through the owner: code and security.
    Do not review drafts or deploy plans.
 5. Prepare one approval request: exact commit, digest, files, check,
-   rollback, and root steps.
-   Fill login, origin, and own addresses from the host through the deploy
-   command. Do not ask the user to look them up.
+   port, rollback, and root steps.
+   Get login, origin, and own addresses from the host through the command.
    Use root only for host needs. Put each command in its own block.
    Keep rollback in a separate block, never next to the step.
 6. If approval is missing, report `needs-input`. The owner asks once,
    with all questions. Recorded approval counts.
-7. After approval, run `bin/deploy <service> <commit>` in the services repo.
+7. After approval, write the service entry and port in the store inventory.
+   Commit under the store lock. Every deploy needs this entry first.
+   Run `bin/deploy <service> <commit>` in the services repo.
    The user runs required root commands. The deploy command installs,
    restarts, checks, and rolls back on failure. Report the result.
 8. Write `inventory/services.toml` and `deploys.log` through the deploy
