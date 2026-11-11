@@ -136,17 +136,20 @@ to another Claude agent.
 
 1. Check the diff, the commits, and the PR text for private names. Push your
    branch. Open the PR.
-2. Start one reviewer worker with the `hc-worker` skill, role `review`. Use
-   the other model family from the builders. Give the repo, the base, the
-   head SHA, the goal, and `state.md`.
-3. Start a `security-review` worker only for a new access path, a root step,
-   or real secrets or mail. Give only the target: repo, head SHA, and what
-   changes.
-4. Fix the findings. A new commit needs a new pass on its exact SHA.
+2. Start one read-only reviewer from the other model family for the final
+   commit. Give the repo, base, head SHA, goal, and `state.md`.
+   For a live service, use `security-review`. This reviewer checks both
+   code and the security checklist. Otherwise use `hc-worker`, role `review`.
+3. Do not review drafts or deploy plans. Add no new check unless the
+   review finds a high severity problem.
+4. Fix the findings. A changed commit needs a pass on its exact SHA.
+   A pure rebase needs only `git range-diff`. Record the new SHA.
 5. After the pass, merge with `gh pr merge`. A finding stays open only if the
    user accepts it in their own words.
 6. For a live service change, start a `service-deploy` worker. The user
-   approves each deploy one time.
+   approves each deploy one time. Then the worker runs the services repo
+   deploy command and updates the inventory and deploy log. Use no separate
+   store owner.
 
 Before a plan that touches the host, read the system store. Its path is in
 `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`. Do not write to it.

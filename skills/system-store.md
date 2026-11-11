@@ -25,6 +25,8 @@ deploys.log                    one line per deploy: date, service, digest, resul
   watch write to the store.
 - Owners read the store before a plan that touches the host. Owners do not
   write to it.
+- The deploy worker writes the inventory and deploy log through the deploy
+  command. Do not start a separate store owner.
 - Each writer reads the store first. It commits its result before it ends.
 - One writer commits at a time. Use `flock -w 60 "$store/.lock"` around
   `git add` and `git commit`.
