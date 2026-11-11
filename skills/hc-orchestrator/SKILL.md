@@ -129,8 +129,8 @@ Watch your workers with `hc wait --children any` in the background, or with
 On `blocked`, run `hc read <worker> --lines 200` and ask the user. Do not
 answer a worker's permission prompt.
 
-Send each message with `hc-send <name> "<text>"`. Claude can use SendMessage
-to another Claude agent.
+To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
+Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
 
 ## Review and merge
 
@@ -164,15 +164,15 @@ The goal is done when the user uses the result.
 2. Remove the worktrees that you made.
 3. Write the final state in `state.md`.
 4. Send the hypervisor one line:
-   `hc-send <hypervisor> "<your name> finished: <goal>; <PR or merge>; open: <items>"`.
+   `<your name> finished: <goal>; <PR or merge>; open: <items>`.
    Find it with `hc ls --json --label role=hypervisor`.
 5. End your turn.
 
 To drop the goal, tell the user the reason. Drop it only after the answer.
 Record the user's words in `state.md`.
 
-A new feature or a pivot is a new goal. Send it to the hypervisor with
-`hc-send`. Quote the user's words.
+A new feature or a pivot is a new goal. Send it to the hypervisor. Quote
+the user's words.
 
 If a prompt in your terminal is clearly for another agent, send it unchanged
-to the hypervisor with `hc-send`. Then ignore it.
+to the hypervisor. Then ignore it.

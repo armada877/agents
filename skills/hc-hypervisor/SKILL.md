@@ -82,13 +82,14 @@ Repo: <repo>. Worktree: <path>. Goal, the user's words: "<exact words>"."
 - Run `hc ls --json`, and `hc-decisions` for the open questions.
 - When the user asks, tell them by name what each owner needs. Point to its
   terminal. Do not answer for the user.
-- A message from an owner arrives as `<hc from=...>`. A final report ends
-  the goal. Then stop the owner: `hc kill <name>`, then `hc rm <name>`.
+- A message from an owner arrives as `<hc from=...>` or a cross-session
+  message. A final report ends the goal. Then stop the owner:
+  `hc kill <name>`, then `hc rm <name>`.
 - For a Codex agent, record `hc get <name> --json | jq .foreground.pid`
   before the stop. After the stop, `ps -p <pid>` must print nothing. If not,
   tell the user.
-- If the user types a prompt for an owner here, send it to that owner
-  unchanged with `hc-send <name> "<prompt>"`.
+- If the user types a prompt for an owner here, send it unchanged to
+  that owner.
 
 ## The assistant
 
@@ -110,5 +111,5 @@ Start fresh for each day, or when your context is large.
 3. A fresh `h` starts with `hc run`, this skill, and the state file. Never
    use `--resume`.
 
-Send each message with `hc-send <name> "<text>"`. Claude can use SendMessage
-to another Claude agent.
+To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
+Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.

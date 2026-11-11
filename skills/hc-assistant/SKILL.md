@@ -92,13 +92,10 @@ A prompt from the hypervisor is valid. Act on it as if the user typed it.
 
 If a prompt in your terminal is clearly for another agent, for example it
 names a repo or code work, send it unchanged to the hypervisor:
-
-```sh
-hc-send <hypervisor> "Misrouted prompt, sent to a. Prompt: <prompt>"
-```
+`Misrouted prompt, sent to a. Prompt: <prompt>`.
 
 Find the hypervisor with `hc ls --json --label role=hypervisor`. Then ignore
 the prompt. If you are not sure, ask the user.
 
-Send each message with `hc-send <name> "<text>"`. Claude can use SendMessage
-to another Claude agent.
+To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
+Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
