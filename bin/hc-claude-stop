@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -11,6 +12,10 @@ try:
     from hc_question import direct_question
 except Exception:
     direct_question = None
+try:
+    from hc_label import decision_pending
+except Exception:
+    decision_pending = None
 
 
 MAX_INPUT = 1024 * 1024
@@ -46,17 +51,37 @@ def has_dialog(path):
     return count > 0
 
 
+QUESTION_REASON = "Ask the user with AskUserQuestion. Put all open questions in one dialog. If no answer is needed, state the result."
+LABEL_REASON = (
+    "Your decision label is set, but you showed the user no dialog. "
+    "Ask the user with AskUserQuestion. Put all open questions in one dialog. "
+    "If you need no answer, clear the label with: hc label \"$HC_TERMINAL_ID\" decision= decision-kind="
+)
+
+
+def asks_question(text):
+    return direct_question is not None and isinstance(text, str) and direct_question(text)
+
+
+def labeled():
+    terminal = os.environ.get("HC_TERMINAL_ID")
+    return bool(terminal) and decision_pending is not None and decision_pending(terminal)
+
+
 def decision(payload):
     if not isinstance(payload, dict) or payload.get("hook_event_name") != "Stop":
         return None
     if payload.get("stop_hook_active") is not False:
         return None
-    text = payload.get("last_assistant_message")
-    if direct_question is None or not isinstance(text, str) or not direct_question(text):
+    if asks_question(payload.get("last_assistant_message")):
+        reason = QUESTION_REASON
+    elif labeled():
+        reason = LABEL_REASON
+    else:
         return None
     if has_dialog(payload.get("transcript_path")):
         return None
-    return {"decision": "block", "reason": "Ask the user with AskUserQuestion. Put all open questions in one dialog. If no answer is needed, state the result."}
+    return {"decision": "block", "reason": reason}
 
 
 def main():

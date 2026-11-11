@@ -15,6 +15,8 @@ Only assistant `tool_use` blocks count as calls. `SendMessage` inputs do not cou
 One current-turn dialog permits Stop, even if the final text contains another question.
 
 Both programs import the shared question filter from `hc_question.py`, beside the scripts.
+Both programs import the shared label check from `hc_label.py`, beside the scripts.
+A missing or broken `hc_label.py` disables only the label check.
 They resolve script symlinks before importing it. Keep this module beside the script targets.
 A missing or broken module disables question detection without error output.
 The Codex hook still checks decision labels when the module cannot load.
@@ -64,6 +66,13 @@ Paired quotes can hide a real question. Transcript formats without a user bounda
 The program does not fall back to transcript text when final text is absent.
 
 A match without a current-turn dialog returns `decision: block` with an instruction to use `AskUserQuestion`.
+
+The program also checks the decision label when the final text has no matching question.
+It reads `HC_TERMINAL_ID` and runs `/usr/bin/hc get` with `--json` and a two-second timeout.
+A nonempty string in `labels.decision` without a current-turn dialog also returns `decision: block`.
+The reason tells the agent to use `AskUserQuestion`, or to clear the label if it needs no answer.
+Missing `HC_TERMINAL_ID`, a failed label read, or an empty label permits Stop.
+Thus, `Decision needed: put the fix on main?` with a decision label opens a dialog.
 The program permits Stop when `stop_hook_active` is true. Thus, it requests at most one continuation per hook chain.
 A new user turn can supply `stop_hook_active: false` and start another check.
 An earlier dialog does not cover that new turn.

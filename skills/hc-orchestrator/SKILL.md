@@ -87,11 +87,12 @@ Ask only for scope, wider access, an accepted risk, a deploy, or an action
 that you cannot undo. Make all other reversible choices yourself, and record
 them in `state.md`.
 
-1. Write all questions in one message in your terminal. Give a recommendation
-   for each. Make the message stand alone.
-2. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
+1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
-3. End your turn. Claude can use AskUserQuestion in place of step 1.
+2. Claude must put all questions in one AskUserQuestion dialog. Other agents
+   write them in one terminal message. Give a recommendation for each. Use
+   plain words, not codes. Make each question stand alone.
+3. End your turn.
 4. Record the answer in `state.md`: the user's words, the question, the
    time, and the scope. Then run
    `hc label "$HC_TERMINAL_ID" decision= decision-kind=`.
