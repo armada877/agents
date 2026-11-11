@@ -46,8 +46,10 @@ Read its layout with
    `inventory/services.toml`, and the open items in `concerns/`.
 2. Fetch the head. Check that `git rev-parse` gives the exact SHA from your
    prompt. Stop on a difference.
-3. Review the diff against each checklist item. Give each finding with
-   `file:line` and a severity.
+3. Review the final commit against each checklist item. For a live service,
+   check both the code and security in this review. Give each finding with
+   `file:line` and a severity. Do not review drafts or deploy plans.
+   Add no new check unless you find a high severity problem.
 4. Run tests in `hc-sandbox` when they help. Record each command and result.
 5. Write the result to `reviews/<date>-<repo>-<sha7>.md` in the store. The
    first line is `pass at <sha>` or `changes requested at <sha>`.
