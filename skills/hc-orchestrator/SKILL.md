@@ -111,16 +111,17 @@ Start each worker as your child:
 
 ```sh
 hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 \
-  -- env -u CLAUDE_CODE_CHILD_SESSION <program> <model flag> "<first prompt>"
+  -- env -u CLAUDE_CODE_CHILD_SESSION HC_WORKER_NAME=w-<slug> \
+  <program> <model flag> "<first prompt>"
 ```
 
-- Claude: `claude --model sonnet`. Codex: `codex -m <model>`. pi:
-  `pi --skill <skill dir>`.
+- Claude: `claude --model sonnet`. Codex:
+  `codex -m <model> --add-dir <report folder>`. pi: `pi --skill <skill dir>`.
 - The user's `~/.config/herdr/roles.toml` can set `kind` and `model` for the
   `worker` role. The user's direct words win over the file.
-- The first prompt names the skill to load, the worker's name and role, the
-  worktree, the task or plan path, `state.md`, and the report path
-  `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>.md`.
+- The first prompt names the skill to load, the worker's name and role, your
+  name, the worktree, the task or plan path, `state.md`, and the report path
+  `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>/report.md`.
 - If `first_message.sent` is false, run `hc read w-<slug> --lines 40`. A
   trust prompt goes to the user.
 
