@@ -13,7 +13,7 @@ approved on 2026-11-10.
 - 2026-11-10, permanent: No agent approves its own work. A reviewer did not help build the change. (Plan)
 - 2026-11-10, permanent: Report what happened, with failures and skipped steps. Do not state a result that you did not check. (Constitution)
 - 2026-11-10, until 2027-05-10: Write the user's goal in one sentence, in their words, in the goal's `state.md`. (Plan)
-- 2026-11-10, until 2027-05-10: Before any review, show the user one rough screen or run from `hc-sandbox`. Ask "right thing or wrong thing?" Skip only for real data. (Setup review)
+- 2026-11-10, until 2027-05-10: Before any review, show the user one rough screen or run from `hc-sandbox`. Ask "Approve or deny?" Skip only for real data. (Setup review)
 - 2026-11-10, until 2027-05-10: Build, run, and test the product in `hc-sandbox`. Use fake data. Real data needs the user's approval. The user: "all the unit tests in the world mean nothing if the actual product does not run."
 - 2026-11-10, until 2027-05-10: Ask the user only for scope, wider access, an accepted risk, a deploy, or an action that you cannot undo. Ask all questions in one message, each with a recommendation. (Plan)
 - 2026-11-10, until 2027-05-10: One approval for the scope and one for each deploy. A first-hand answer from the user counts in any terminal. Record it in `state.md`: the words, the question, the time, the scope. (Plan)

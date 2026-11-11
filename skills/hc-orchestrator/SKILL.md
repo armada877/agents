@@ -62,7 +62,7 @@ facts and open items only. Never write standing rules here.
 1. Write the goal in one sentence, in the user's words.
 2. Build a rough version fast. Run it in `hc-sandbox`. Get one screenshot or
    one run output.
-3. Ask the user one question: "Right thing or wrong thing?" Give the
+3. Ask the user one question: "Approve or deny?" Give the
    screenshot path, or `hc-sandbox up --publish` and its URL.
 4. Start no review before this answer, unless the work uses real data.
 
