@@ -1,0 +1,69 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: hc-show <file.md | image>" >&2
+  exit 1
+}
+
+(($# == 1)) || usage
+[[ -f $1 ]] || usage
+
+source_file="$(realpath "$1")"
+file_name="$(basename "$source_file")"
+push_config="${XDG_CONFIG_HOME:-$HOME/.config}/hc/push-command"
+
+is_markdown() {
+  [[ $source_file == *.md || $source_file == *.markdown ]]
+}
+
+is_image() {
+  [[ ${source_file,,} =~ \.(png|jpe?g|gif|webp)$ ]]
+}
+
+viewer() {
+  if is_markdown; then
+    echo glow -t
+  elif is_image; then
+    echo --hold kitten icat
+  else
+    echo less
+  fi
+}
+
+open_window() {
+  local title="hc-show · $file_name"
+  local -a view
+  read -ra view <<<"$(viewer)"
+  if kitty --detach --title "$title" "${view[@]}" "$source_file"; then
+    echo "hc-show: opened a window: $title" >&2
+  else
+    echo "hc-show: could not open a window" >&2
+  fi
+}
+
+push_command() {
+  [[ -r $push_config ]] || return 1
+  grep -v '^[[:space:]]*\(#\|$\)' "$push_config" | head -n 1
+}
+
+send_push() {
+  local command
+  if ! is_markdown; then
+    echo "hc-show: no push: only Markdown files go to the phone" >&2
+    return 0
+  fi
+  if ! command="$(push_command)" || [[ -z $command ]]; then
+    echo "hc-show: no push: $push_config has no command" >&2
+    return 0
+  fi
+  if $command "$source_file"; then
+    echo "hc-show: sent a push" >&2
+  else
+    echo "hc-show: the push failed: $command" >&2
+  fi
+}
+
+[[ ${HC_SHOW_WINDOW:-1} == 0 ]] || open_window
+[[ ${HC_SHOW_PUSH:-1} == 0 ]] || send_push
