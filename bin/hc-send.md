@@ -3,7 +3,8 @@
 ## Rule
 
 - To send to a Claude agent, use the Claude tool SendMessage.
-- To send to Codex, to pi, or from a script, use `hc-send`.
+- To send to Codex or pi, use `hc-send`.
+- A script cannot use SendMessage. It uses `hc-send` or `hc send`.
 - If SendMessage fails, use `hc-send`.
 
 ## Address
