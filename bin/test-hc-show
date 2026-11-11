@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+HC_SHOW = Path(__file__).resolve().with_name("hc-show")
+
+RECORDER = """#!/bin/bash
+printf '%s\\n' "$@" > "$RECORD_DIR/$(basename "$0")"
+exit "${FAKE_EXIT:-0}"
+"""
+
+
+class HcShowTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.bin = self.root / "bin"
+        self.records = self.root / "records"
+        self.config = self.root / "config"
+        for folder in (self.bin, self.records, self.config / "hc"):
+            folder.mkdir(parents=True)
+        for name in ("kitty", "fake-push"):
+            tool = self.bin / name
+            tool.write_text(RECORDER)
+            tool.chmod(0o755)
+        self.doc = self.root / "plan.md"
+        self.doc.write_text("# Plan\n")
+        self.image = self.root / "shot.PNG"
+        self.image.write_bytes(b"png")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def set_push_command(self, text):
+        (self.config / "hc" / "push-command").write_text(text)
+
+    def run_show(self, *args, **env):
+        full_env = {
+            **os.environ,
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "RECORD_DIR": str(self.records),
+            "XDG_CONFIG_HOME": str(self.config),
+            **env,
+        }
+        return subprocess.run(
+            [str(HC_SHOW), *args], env=full_env, capture_output=True, text=True
+        )
+
+    def recorded(self, name):
+        path = self.records / name
+        return path.read_text().splitlines() if path.exists() else None
+
+    def test_markdown_opens_glow_and_pushes(self):
+        self.set_push_command("# local push\n\nfake-push\n")
+        result = self.run_show(str(self.doc))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.recorded("kitty"),
+            ["--detach", "--title", "hc-show · plan.md", "glow", "-t", str(self.doc)],
+        )
+        self.assertEqual(self.recorded("fake-push"), [str(self.doc)])
+        self.assertIn("sent a push", result.stderr)
+
+    def test_image_opens_icat_without_push(self):
+        self.set_push_command("fake-push\n")
+        result = self.run_show(str(self.image))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.recorded("kitty"),
+            ["--detach", "--title", "hc-show · shot.PNG", "--hold", "kitten", "icat", str(self.image)],
+        )
+        self.assertIsNone(self.recorded("fake-push"))
+        self.assertIn("only Markdown", result.stderr)
+
+    def test_missing_push_config_still_opens_window(self):
+        result = self.run_show(str(self.doc))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(self.recorded("kitty"))
+        self.assertIn("has no command", result.stderr)
+
+    def test_failed_push_does_not_fail(self):
+        self.set_push_command("fake-push\n")
+        result = self.run_show(str(self.doc), FAKE_EXIT="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("could not open a window", result.stderr)
+        self.assertIn("the push failed", result.stderr)
+
+    def test_switches_turn_off_window_and_push(self):
+        self.set_push_command("fake-push\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0", HC_SHOW_PUSH="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.recorded("kitty"))
+        self.assertIsNone(self.recorded("fake-push"))
+
+    def test_push_path_with_spaces_and_wildcard_runs_as_one_program(self):
+        folder = self.root / "push tools"
+        folder.mkdir()
+        tool = folder / "push*"
+        tool.write_text(RECORDER)
+        tool.chmod(0o755)
+        self.set_push_command(f"{tool}\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("push*"), [str(self.doc)])
+
+    def test_push_line_is_not_split_or_expanded(self):
+        self.set_push_command("fake-push *\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.recorded("fake-push"))
+        self.assertIn("the push failed", result.stderr)
+
+    def test_file_name_with_leading_hyphen(self):
+        self.set_push_command("fake-push\n")
+        (self.root / "-draft.md").write_text("# Draft\n")
+        result = subprocess.run(
+            [str(HC_SHOW), "-draft.md"],
+            cwd=self.root,
+            env={
+                **os.environ,
+                "PATH": f"{self.bin}:{os.environ['PATH']}",
+                "RECORD_DIR": str(self.records),
+                "XDG_CONFIG_HOME": str(self.config),
+            },
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("kitty")[-1], str(self.root / "-draft.md"))
+        self.assertEqual(self.recorded("fake-push"), [str(self.root / "-draft.md")])
+
+    def test_window_switch_alone_keeps_push(self):
+        self.set_push_command("fake-push\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.recorded("kitty"))
+        self.assertEqual(self.recorded("fake-push"), [str(self.doc)])
+
+    def test_other_file_opens_less(self):
+        text = self.root / "run.txt"
+        text.write_text("output\n")
+        result = self.run_show(str(text), HC_SHOW_PUSH="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("kitty")[-2:], ["less", str(text)])
+
+    def test_missing_file_is_usage_error(self):
+        result = self.run_show(str(self.root / "none.md"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Usage", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
