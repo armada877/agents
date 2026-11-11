@@ -44,7 +44,8 @@ class StopTests(unittest.TestCase):
             stream.flush()
             payload = dict(hook_event_name="Stop", stop_hook_active=False, last_assistant_message="Should I continue?", transcript_path=stream.name)
             payload.update(fields)
-            return stop.decision(payload)
+            with patch.dict(os.environ, {}, clear=True):
+                return stop.decision(payload)
 
     def test_large_adversarial_messages(self):
         for text in ["?" * (1024 * 1024), "a?" * (512 * 1024)]:
@@ -247,13 +248,66 @@ class StopTests(unittest.TestCase):
                 self.decide([user()])
 
 
+class StopLabelTests(unittest.TestCase):
+    def decide(self, entries, label="Put the fix on main?", text="The branch is ready.", env=None, **fields):
+        record = {"labels": {"decision": label}}
+        result = subprocess.CompletedProcess([], 0, json.dumps(record), "")
+        with tempfile.NamedTemporaryFile(mode="w") as stream:
+            for entry in entries:
+                stream.write(json.dumps(entry) + "\n")
+            stream.flush()
+            payload = dict(hook_event_name="Stop", stop_hook_active=False, last_assistant_message=text, transcript_path=stream.name)
+            payload.update(fields)
+            with patch.dict(os.environ, {"HC_TERMINAL_ID": "terminal"} if env is None else env, clear=True), patch.object(subprocess, "run", return_value=result) as run:
+                return stop.decision(payload), run
+
+    def test_label_without_dialog_blocks(self):
+        result, run = self.decide([user()])
+        self.assertEqual(result["decision"], "block")
+        self.assertIn("AskUserQuestion", result["reason"])
+        self.assertIn("decision=", result["reason"])
+        run.assert_called_once_with(["/usr/bin/hc", "get", "terminal", "--json"], capture_output=True, text=True, timeout=2)
+
+    def test_decision_needed_line_blocks(self):
+        result, _ = self.decide([user()], text="Decision needed: put the fix on main?")
+        self.assertEqual(result["decision"], "block")
+
+    def test_label_with_current_dialog(self):
+        result, _ = self.decide([user(), tool("AskUserQuestion")])
+        self.assertIsNone(result)
+
+    def test_label_with_dialog_before_last_user_message(self):
+        result, _ = self.decide([user(), tool("AskUserQuestion"), user("Do the next task.")])
+        self.assertEqual(result["decision"], "block")
+
+    def test_empty_label(self):
+        for label in ["", "  ", None]:
+            with self.subTest(label=label):
+                result, _ = self.decide([user()], label=label)
+                self.assertIsNone(result)
+
+    def test_continuation_allows_stop(self):
+        result, _ = self.decide([user()], stop_hook_active=True)
+        self.assertIsNone(result)
+
+    def test_without_terminal(self):
+        result, run = self.decide([user()], env={})
+        self.assertIsNone(result)
+        run.assert_not_called()
+
+    def test_direct_question_skips_label_read(self):
+        result, run = self.decide([user()], text="Should I continue?")
+        self.assertEqual(result["reason"], stop.QUESTION_REASON)
+        run.assert_not_called()
+
+
 class NotifyTests(unittest.TestCase):
     def run_notify(self, record, returncode=0, error=None, tty_error=None, env=None, args=None):
         result = subprocess.CompletedProcess([], returncode, json.dumps(record), '')
         opened = mock_open()
         if tty_error:
             opened.side_effect = tty_error
-        with patch.object(notify.sys, 'argv', ['hc-codex-notify'] + (args or [])), patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(notify.subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
+        with patch.object(notify.sys, 'argv', ['hc-codex-notify'] + (args or [])), patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
             self.assertEqual(notify.main(), 0)
         return run, opened
 
@@ -363,6 +417,7 @@ else:
                 root = Path(directory)
                 if source is not None:
                     (root / "hc_question.py").write_text(source)
+                (root / "hc_label.py").write_bytes(Path(__file__).with_name("hc_label.py").read_bytes())
                 for name in ["hc-claude-stop", "hc-codex-notify"]:
                     script = root / name
                     script.write_bytes(Path(__file__).with_name(name).read_bytes())
@@ -434,7 +489,7 @@ else:
         opened.assert_not_called()
 
     def test_invalid_json(self):
-        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'}, clear=True), patch.object(notify.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{', '')), patch('builtins.open') as opened:
+        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'}, clear=True), patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{', '')), patch('builtins.open') as opened:
             self.assertEqual(notify.main(), 0)
             opened.assert_not_called()
 

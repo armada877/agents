@@ -59,6 +59,8 @@ for the config file.
 If a choice is reversible and inside the task, make it. Write it under
 `## Decisions`. Stop and report `needs-input` only for the goal, the scope,
 wider access, an accepted risk, a deploy, or an action that you cannot undo.
+Write the questions in your report. Your owner asks the user. If your owner
+tells you to ask the user, Claude must use AskUserQuestion.
 
 Do not push, merge, or open a PR unless your owner tells you to. Do not start
 or prompt other agents. Do not change the Herdr app layout.
