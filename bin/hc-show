@@ -10,7 +10,7 @@ usage() {
 (($# == 1)) || usage
 [[ -f $1 ]] || usage
 
-source_file="$(realpath "$1")"
+source_file="$(realpath -- "$1")"
 file_name="$(basename "$source_file")"
 push_config="${XDG_CONFIG_HOME:-$HOME/.config}/hc/push-command"
 
@@ -58,7 +58,7 @@ send_push() {
     echo "hc-show: no push: $push_config has no command" >&2
     return 0
   fi
-  if $command "$source_file"; then
+  if "$command" "$source_file"; then
     echo "hc-show: sent a push" >&2
   else
     echo "hc-show: the push failed: $command" >&2

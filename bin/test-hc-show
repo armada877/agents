@@ -96,6 +96,57 @@ class HcShowTests(unittest.TestCase):
         self.assertIsNone(self.recorded("kitty"))
         self.assertIsNone(self.recorded("fake-push"))
 
+    def test_push_path_with_spaces_and_wildcard_runs_as_one_program(self):
+        folder = self.root / "push tools"
+        folder.mkdir()
+        tool = folder / "push*"
+        tool.write_text(RECORDER)
+        tool.chmod(0o755)
+        self.set_push_command(f"{tool}\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("push*"), [str(self.doc)])
+
+    def test_push_line_is_not_split_or_expanded(self):
+        self.set_push_command("fake-push *\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.recorded("fake-push"))
+        self.assertIn("the push failed", result.stderr)
+
+    def test_file_name_with_leading_hyphen(self):
+        self.set_push_command("fake-push\n")
+        (self.root / "-draft.md").write_text("# Draft\n")
+        result = subprocess.run(
+            [str(HC_SHOW), "-draft.md"],
+            cwd=self.root,
+            env={
+                **os.environ,
+                "PATH": f"{self.bin}:{os.environ['PATH']}",
+                "RECORD_DIR": str(self.records),
+                "XDG_CONFIG_HOME": str(self.config),
+            },
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("kitty")[-1], str(self.root / "-draft.md"))
+        self.assertEqual(self.recorded("fake-push"), [str(self.root / "-draft.md")])
+
+    def test_window_switch_alone_keeps_push(self):
+        self.set_push_command("fake-push\n")
+        result = self.run_show(str(self.doc), HC_SHOW_WINDOW="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.recorded("kitty"))
+        self.assertEqual(self.recorded("fake-push"), [str(self.doc)])
+
+    def test_other_file_opens_less(self):
+        text = self.root / "run.txt"
+        text.write_text("output\n")
+        result = self.run_show(str(text), HC_SHOW_PUSH="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded("kitty")[-2:], ["less", str(text)])
+
     def test_missing_file_is_usage_error(self):
         result = self.run_show(str(self.root / "none.md"))
         self.assertEqual(result.returncode, 1)

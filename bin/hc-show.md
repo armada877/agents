@@ -10,8 +10,8 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
    - An image (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) opens in
      `kitten icat`.
    - Other files open in `less`.
-2. For a Markdown file, it runs the push command with the file path as its
-   only argument. The push command sends the doc to the user's phone.
+2. For a Markdown file, it runs the push command. The push command sends
+   the doc to the user's phone.
 
 A failed window or a failed push prints one line to stderr. It does not stop
 the other step. `hc-show` exits 0 after it starts. It exits 1 for a missing
@@ -22,8 +22,9 @@ file.
 Write the push command in `${XDG_CONFIG_HOME:-$HOME/.config}/hc/push-command`.
 
 - The first line that is not empty and does not start with `#` is the
-  command.
-- `hc-show` adds the file path as the last argument.
+  command. It is the name or the path of one program, with no arguments.
+  A path can contain spaces.
+- `hc-show` runs the program with the file path as its only argument.
 - A missing file means no push.
 
 Keep the push command, its server, and its topic out of this repo. A good
