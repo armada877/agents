@@ -65,8 +65,7 @@ or prompt other agents. Do not change the Herdr app layout.
 
 ## Report
 
-Write the report to the exact path in your first prompt. Replace the old
-content each time:
+Write the report to the path in your first prompt. Replace it each time:
 
 ```markdown
 # <worker-name> report
@@ -90,6 +89,8 @@ Then send one line to your owner, and end your turn:
 ```sh
 hc send <owner> "REPORT: <report path> status=<status>"
 ```
+
+If hc fails, end your turn.
 
 If a prompt in your terminal is for another agent, copy it unchanged under
 `## Misrouted prompts` in your report.

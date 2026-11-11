@@ -119,8 +119,8 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
   `codex -m <model> --add-dir <report folder>`. pi: `pi --skill <skill dir>`.
 - The user's `~/.config/herdr/roles.toml` can set `kind` and `model` for the
   `worker` role. The user's direct words win over the file.
-- The first prompt names the skill to load, the worker's name and role, your
-  name, the worktree, the task or plan path, `state.md`, and the report path
+- The first prompt names the skill, the worker's name and role, and you. It
+  names the worktree, the task or plan, `state.md`, and the report path
   `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>/report.md`.
 - If `first_message.sent` is false, run `hc read w-<slug> --lines 40`. A
   trust prompt goes to the user.
