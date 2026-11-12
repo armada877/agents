@@ -277,12 +277,14 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
         self.assertNotIn("MKNOD", module.BUILDER_CAPS)
 
-    def test_build_output_stays_out_of_the_journal(self):
-        sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
-        args = module.builder_args(sandbox, "builder")
-        self.assertEqual(args[args.index("--log-driver") + 1], "none")
+    def test_podman_logs_nothing_by_default(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)):
+            env = module.podman_env()
+            conf = Path(env["CONTAINERS_CONF_OVERRIDE"]).read_text()
+        self.assertEqual(module.tomllib.loads(conf), {"containers": {"log_driver": "none"}})
 
-    def test_each_container_has_a_log_driver_other_than_journald(self):
+    def test_only_the_app_keeps_a_log(self):
         sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app", "port": 8000}))
         runs = []
 
@@ -301,22 +303,25 @@ class ArgumentTests(unittest.TestCase):
             with module.egress_filter(sandbox):
                 pass
             module.up(sandbox, False)
-        self.assertEqual(len(runs), 4)
-        for args in runs:
-            with self.subTest(name=args[args.index("--name") + 1] if "--name" in args else "egress setup"):
-                driver = args[args.index("--log-driver") + 1]
-                self.assertIn(driver, ("none", "k8s-file"))
+        runs.append(tuple(module.builder_args(sandbox, "builder")))
+        drivers = {args[args.index("--name") + 1] if "--name" in args else "egress setup":
+                   args[args.index("--log-driver") + 1] if "--log-driver" in args else "default"
+                   for args in runs}
+        self.assertEqual(drivers, {sandbox.egress: "default", "egress setup": "default", sandbox.app: "k8s-file",
+                                   sandbox.browser: "default", sandbox.builder: "default"})
 
     def test_podman_uses_its_own_store(self):
         with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
                 unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path("/r")), \
-                unittest.mock.patch.object(Path, "mkdir"), unittest.mock.patch.object(Path, "chmod"):
+                unittest.mock.patch.object(Path, "mkdir"), unittest.mock.patch.object(Path, "chmod"), \
+                unittest.mock.patch.object(module, "containers_conf", return_value=Path("/r/containers.conf")):
             argv = module.podman_argv("ps")
             env = module.podman_env()
         self.assertEqual(argv, ["podman", "--root", "/s/graph", "--runroot", "/r/containers", "--tmpdir",
                                 "/r/libpod/tmp", "--network-config-dir", "/s/networks", "--volumepath", "/s/volumes",
                                 "ps"])
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/r")
+        self.assertEqual(env["CONTAINERS_CONF_OVERRIDE"], "/r/containers.conf")
 
     def test_asset_build_uses_repo_files_only(self):
         args = module.asset_build_args("egress", "tag")
@@ -368,13 +373,30 @@ def sandbox(worktree, *args, env=None):
                           capture_output=True, text=True, env=env)
 
 
-def journal_lines(worktree):
+def sandbox_id(worktree):
     config = module.parse_config(module.tomllib.loads((worktree / "hc-sandbox.toml").read_text()))
-    sandbox_id = module.Sandbox(worktree.resolve(), config).id
-    result = subprocess.run(["journalctl", "--user", "--quiet", "-o", "cat", f"CONTAINER_NAME=hcsb-{sandbox_id}-build",
-                             "+", f"CONTAINER_NAME=hcsb-{sandbox_id}-app"],
-                            capture_output=True, text=True)
+    return module.Sandbox(worktree.resolve(), config).id
+
+
+def journal_lines(worktree):
+    names = [f"CONTAINER_NAME=hcsb-{sandbox_id(worktree)}-{kind}" for kind in ("build", "egress", "app", "browser")]
+    query = [part for name in names for part in (name, "+")][:-1]
+    result = subprocess.run(["journalctl", "--user", "--quiet", "-o", "cat", *query], capture_output=True, text=True)
+    if result.returncode:
+        raise AssertionError(f"journalctl failed: {result.stderr}")
     return len(result.stdout.splitlines())
+
+
+def log_drivers(worktree):
+    pod = f"hcsb-{sandbox_id(worktree)}"
+    names = subprocess.run(module.podman_argv("ps", "--all", "--filter", f"pod={pod}", "--format", "{{.Names}}"),
+                           env=module.podman_env(), capture_output=True, text=True, check=True).stdout.split()
+    drivers = {}
+    for name in names:
+        driver = subprocess.run(module.podman_argv("inspect", "--format", "{{.HostConfig.LogConfig.Type}}", name),
+                                env=module.podman_env(), capture_output=True, text=True, check=True).stdout.strip()
+        drivers[name.rsplit("-", 1)[-1]] = driver
+    return drivers
 
 
 def probe_states(output, marker="PROBE"):
@@ -400,6 +422,7 @@ class ExampleEndToEnd(unittest.TestCase):
                 self.assertTrue((worktree / ".hc-sandbox" / "out" / "index.png").stat().st_size > 1000)
                 logs = sandbox(worktree, "logs")
                 self.assertIn("GET /", logs.stdout + logs.stderr)
+                self.assertEqual(log_drivers(worktree), {"app": "k8s-file", "browser": "none", "infra": "none"})
                 self.assertEqual(journal_lines(worktree), 0)
             finally:
                 sandbox(worktree, "down")

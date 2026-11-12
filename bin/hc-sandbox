@@ -30,7 +30,7 @@ STEP_CAPS = ",".join(f"CAP_{cap}" for cap in BUILD_CAPS.split(","))
 BUILDER_STORE = "/var/lib/containers"
 HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
 LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
-NO_LOG = ["--log-driver", "none"]
+CONTAINERS_CONF = '[containers]\nlog_driver = "none"\n'
 APP_LOG = ["--log-driver", "k8s-file", "--log-opt", "max-size=10mb"]
 BUILD_LIMITS = ["--memory", "4g"]
 BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
@@ -259,8 +259,17 @@ def sandbox_storage_dir():
     return home_dir() / ".local" / "share" / "hc-sandbox"
 
 
+def containers_conf():
+    path = sandbox_runtime_dir() / "containers.conf"
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not path.exists() or path.read_text() != CONTAINERS_CONF:
+        path.write_text(CONTAINERS_CONF)
+    return path
+
+
 def podman_env():
     env = {key: os.environ[key] for key in PODMAN_ENV_KEYS if key in os.environ}
+    env["CONTAINERS_CONF_OVERRIDE"] = str(containers_conf())
     env["XDG_RUNTIME_DIR"] = str(sandbox_runtime_dir())
     env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={user_runtime_dir() / 'bus'}"
     return env
@@ -333,7 +342,7 @@ def asset_build_args(kind, tag):
 def builder_args(sandbox, builder_image):
     return ["run", "--rm", "--interactive", "--name", sandbox.builder, *sandbox.labels(),
             "--network", f"container:{sandbox.egress}", "--cap-drop", "all", "--cap-add", BUILDER_CAPS,
-            "--security-opt", "no-new-privileges", *BUILDER_LIMITS, *NO_LOG,
+            "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
             "--volume", f"{sandbox.store}:{BUILDER_STORE}", "--volume", f"{sandbox.cache}:/cache",
             builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
 
@@ -365,11 +374,11 @@ def egress_filter(sandbox):
     image = ensure_asset_image("egress")
     podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
     podman("run", "--detach", "--name", sandbox.egress, *sandbox.labels(), "--network", PASTA_NETWORK,
-           "--dns", PASTA_DNS, "--dns-search", ".", *HARDENING, *LIMITS, *NO_LOG, "--entrypoint", "sleep", image, "infinity",
+           "--dns", PASTA_DNS, "--dns-search", ".", *HARDENING, *LIMITS, "--entrypoint", "sleep", image, "infinity",
            quiet=True)
     try:
         podman("run", "--rm", *sandbox.labels(), "--network", f"container:{sandbox.egress}", "--cap-drop", "all",
-               "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS, *NO_LOG, image, *host_addresses(),
+               "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS, image, *host_addresses(),
                quiet=True)
         yield
     finally:
@@ -530,7 +539,7 @@ def up(sandbox, publish):
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS, *APP_LOG,
            "--volume", f"{sandbox.cache}:/cache", sandbox.image, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
-           *LIMITS, *NO_LOG, "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
+           *LIMITS, "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
     if sandbox.config.port:
         ready = wait_until(lambda: app_ready(sandbox) or not app_running(sandbox), sandbox.config.ready_timeout)
         require(ready and app_running(sandbox), "the app did not answer on its port: run hc-sandbox logs")

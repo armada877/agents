@@ -115,13 +115,17 @@ ignores this folder.
 
 Podman sends container output to the user journal by default. A build writes
 many lines, and the image archive on its output is binary data. So the
-wrapper keeps the journal out of each container:
+wrapper keeps the journal out of each container.
+
+Each `podman` command gets `CONTAINERS_CONF_OVERRIDE`. It points to a
+`containers.conf` file in the runtime folder that sets `log_driver = "none"`.
+This default also covers the pod infra container, which takes no log flag.
 
 | Container | Log driver | Why |
 |-----------|------------|-----|
 | Builder | `none` | The wrapper reads its output directly. |
 | Egress, egress setup | `none` | They have no useful output. |
-| Browser | `none` | It only runs `sleep`. |
+| Pod infra, browser | `none` | They only wait. |
 | App | `k8s-file`, 10 MB at most | `hc-sandbox logs` reads it. |
 
 ### Podman storage
