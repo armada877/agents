@@ -30,6 +30,8 @@ STEP_CAPS = ",".join(f"CAP_{cap}" for cap in BUILD_CAPS.split(","))
 BUILDER_STORE = "/var/lib/containers"
 HARDENING = ["--cap-drop", "all", "--security-opt", "no-new-privileges"]
 LIMITS = ["--memory", "2g", "--pids-limit", "512", "--cpus", "2"]
+NO_LOG = ["--log-driver", "none"]
+APP_LOG = ["--log-driver", "k8s-file", "--log-opt", "max-size=10mb"]
 BUILD_LIMITS = ["--memory", "4g"]
 BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
 GLOBAL_IPV6 = ipaddress.ip_network("2000::/3")
@@ -331,7 +333,7 @@ def asset_build_args(kind, tag):
 def builder_args(sandbox, builder_image):
     return ["run", "--rm", "--interactive", "--name", sandbox.builder, *sandbox.labels(),
             "--network", f"container:{sandbox.egress}", "--cap-drop", "all", "--cap-add", BUILDER_CAPS,
-            "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
+            "--security-opt", "no-new-privileges", *BUILDER_LIMITS, *NO_LOG,
             "--volume", f"{sandbox.store}:{BUILDER_STORE}", "--volume", f"{sandbox.cache}:/cache",
             builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
 
@@ -363,11 +365,11 @@ def egress_filter(sandbox):
     image = ensure_asset_image("egress")
     podman("rm", "--force", "--time", "0", sandbox.egress, check=False, quiet=True)
     podman("run", "--detach", "--name", sandbox.egress, *sandbox.labels(), "--network", PASTA_NETWORK,
-           "--dns", PASTA_DNS, "--dns-search", ".", *HARDENING, *LIMITS, "--entrypoint", "sleep", image, "infinity",
+           "--dns", PASTA_DNS, "--dns-search", ".", *HARDENING, *LIMITS, *NO_LOG, "--entrypoint", "sleep", image, "infinity",
            quiet=True)
     try:
         podman("run", "--rm", *sandbox.labels(), "--network", f"container:{sandbox.egress}", "--cap-drop", "all",
-               "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS, image, *host_addresses(),
+               "--cap-add", "NET_ADMIN", "--security-opt", "no-new-privileges", *LIMITS, *NO_LOG, image, *host_addresses(),
                quiet=True)
         yield
     finally:
@@ -525,10 +527,10 @@ def up(sandbox, publish):
     podman("network", "create", "--internal", "--disable-dns", *sandbox.labels(), sandbox.network, quiet=True)
     ports = ["--publish", f"127.0.0.1::{sandbox.config.port}"] if publish else []
     podman("pod", "create", "--name", sandbox.pod, "--hostname", sandbox.pod, "--network", sandbox.network, *sandbox.labels(), *ports, quiet=True)
-    podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS,
+    podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.app, *sandbox.labels(), *HARDENING, *LIMITS, *APP_LOG,
            "--volume", f"{sandbox.cache}:/cache", sandbox.image, quiet=True)
     podman("run", "--detach", "--pod", sandbox.pod, "--name", sandbox.browser, *sandbox.labels(), *HARDENING,
-           *LIMITS, "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
+           *LIMITS, *NO_LOG, "--entrypoint", "sleep", browser_image, "infinity", quiet=True)
     if sandbox.config.port:
         ready = wait_until(lambda: app_ready(sandbox) or not app_running(sandbox), sandbox.config.ready_timeout)
         require(ready and app_running(sandbox), "the app did not answer on its port: run hc-sandbox logs")

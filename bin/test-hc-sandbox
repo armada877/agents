@@ -277,6 +277,36 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
         self.assertNotIn("MKNOD", module.BUILDER_CAPS)
 
+    def test_build_output_stays_out_of_the_journal(self):
+        sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app"}))
+        args = module.builder_args(sandbox, "builder")
+        self.assertEqual(args[args.index("--log-driver") + 1], "none")
+
+    def test_each_container_has_a_log_driver_other_than_journald(self):
+        sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app", "port": 8000}))
+        runs = []
+
+        def fake_podman(*args, **kwargs):
+            if args[0] == "run":
+                runs.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with unittest.mock.patch.object(module, "podman", side_effect=fake_podman), \
+                unittest.mock.patch.object(module, "exists", return_value=True), \
+                unittest.mock.patch.object(module, "host_addresses", return_value=[]), \
+                unittest.mock.patch.object(module, "open_out_dir", return_value=os.open("/", os.O_RDONLY)), \
+                unittest.mock.patch.object(module, "app_ready", return_value=True), \
+                unittest.mock.patch.object(module, "app_running", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with module.egress_filter(sandbox):
+                pass
+            module.up(sandbox, False)
+        self.assertEqual(len(runs), 4)
+        for args in runs:
+            with self.subTest(name=args[args.index("--name") + 1] if "--name" in args else "egress setup"):
+                driver = args[args.index("--log-driver") + 1]
+                self.assertIn(driver, ("none", "k8s-file"))
+
     def test_podman_uses_its_own_store(self):
         with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
                 unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path("/r")), \
@@ -338,6 +368,15 @@ def sandbox(worktree, *args, env=None):
                           capture_output=True, text=True, env=env)
 
 
+def journal_lines(worktree):
+    config = module.parse_config(module.tomllib.loads((worktree / "hc-sandbox.toml").read_text()))
+    sandbox_id = module.Sandbox(worktree.resolve(), config).id
+    result = subprocess.run(["journalctl", "--user", "--quiet", "-o", "cat", f"CONTAINER_NAME=hcsb-{sandbox_id}-build",
+                             "+", f"CONTAINER_NAME=hcsb-{sandbox_id}-app"],
+                            capture_output=True, text=True)
+    return len(result.stdout.splitlines())
+
+
 def probe_states(output, marker="PROBE"):
     states = {}
     for line in output.splitlines():
@@ -359,6 +398,9 @@ class ExampleEndToEnd(unittest.TestCase):
                     result = sandbox(worktree, *step)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertTrue((worktree / ".hc-sandbox" / "out" / "index.png").stat().st_size > 1000)
+                logs = sandbox(worktree, "logs")
+                self.assertIn("GET /", logs.stdout + logs.stderr)
+                self.assertEqual(journal_lines(worktree), 0)
             finally:
                 sandbox(worktree, "down")
 

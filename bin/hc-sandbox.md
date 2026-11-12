@@ -111,6 +111,19 @@ The browser container has headless Chromium. The wrapper copies each
 screenshot from the browser into `.hc-sandbox/out/` in the worktree. Git
 ignores this folder.
 
+### Logs
+
+Podman sends container output to the user journal by default. A build writes
+many lines, and the image archive on its output is binary data. So the
+wrapper keeps the journal out of each container:
+
+| Container | Log driver | Why |
+|-----------|------------|-----|
+| Builder | `none` | The wrapper reads its output directly. |
+| Egress, egress setup | `none` | They have no useful output. |
+| Browser | `none` | It only runs `sleep`. |
+| App | `k8s-file`, 10 MB at most | `hc-sandbox logs` reads it. |
+
 ### Podman storage
 
 The wrapper does not use the Podman storage of the user. It gives each
