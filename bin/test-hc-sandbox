@@ -270,30 +270,33 @@ class ArgumentTests(unittest.TestCase):
         args = module.builder_args(sandbox, "builder")
         self.assertEqual(args[args.index("--network") + 1], f"container:{sandbox.egress}")
         self.assertEqual(args[args.index("--cap-drop") + 1], "all")
-        self.assertNotIn("NET_ADMIN", args[args.index("--cap-add") + 1])
+        added = [args[index + 1] for index, arg in enumerate(args) if arg == "--cap-add"]
+        self.assertEqual(",".join(added), module.BUILDER_CAPS)
+        self.assertNotIn("NET_ADMIN", added)
         self.assertIn("no-new-privileges", args)
         self.assertFalse([arg for arg in args if arg.startswith("/w") or ":/w" in arg or "/w:" in arg])
-        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
+        self.assertEqual(args[-3:], [module.STEP_CAPS, "Containerfile", sandbox.image])
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
         self.assertNotIn("MKNOD", module.BUILDER_CAPS)
 
     def test_podman_logs_nothing_by_default(self):
         with tempfile.TemporaryDirectory() as directory, \
                 unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)):
-            env = module.podman_env()
+            env = module.Podman().env()
             conf = Path(env["CONTAINERS_CONF_OVERRIDE"]).read_text()
         self.assertEqual(module.tomllib.loads(conf), {"containers": {"log_driver": "none"}})
 
-    def test_only_the_app_keeps_a_log(self):
+    def run_log_drivers(self, engine):
         sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app", "port": 8000}))
         runs = []
 
-        def fake_podman(*args, **kwargs):
+        def fake_run_engine(*args, **kwargs):
             if args[0] == "run":
                 runs.append(args)
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with unittest.mock.patch.object(module, "podman", side_effect=fake_podman), \
+        with unittest.mock.patch.object(module, "engine", return_value=engine), \
+                unittest.mock.patch.object(module, "run_engine", side_effect=fake_run_engine), \
                 unittest.mock.patch.object(module, "exists", return_value=True), \
                 unittest.mock.patch.object(module, "host_addresses", return_value=[]), \
                 unittest.mock.patch.object(module, "open_out_dir", return_value=os.open("/", os.O_RDONLY)), \
@@ -303,20 +306,33 @@ class ArgumentTests(unittest.TestCase):
             with module.egress_filter(sandbox):
                 pass
             module.up(sandbox, False)
-        runs.append(tuple(module.builder_args(sandbox, "builder")))
-        drivers = {args[args.index("--name") + 1] if "--name" in args else "egress setup":
-                   args[args.index("--log-driver") + 1] if "--log-driver" in args else "default"
-                   for args in runs}
-        self.assertEqual(drivers, {sandbox.egress: "default", "egress setup": "default", sandbox.app: "k8s-file",
-                                   sandbox.browser: "default", sandbox.builder: "default"})
+            runs.append(tuple(module.builder_args(sandbox, "builder")))
+        names = {sandbox.egress: "egress", sandbox.infra: "infra", sandbox.app: "app",
+                 sandbox.browser: "browser", sandbox.builder: "builder"}
+
+        def name(args):
+            if "--name" in args:
+                return names[args[args.index("--name") + 1]]
+            return "run filter" if "nft" in args else "egress setup"
+
+        return {name(args): args[args.index("--log-driver") + 1] if "--log-driver" in args else "default"
+                for args in runs}
+
+    def test_only_the_app_keeps_a_log(self):
+        helpers = ("egress", "egress setup", "browser", "builder")
+        docker_helpers = (*helpers, "infra", "run filter")
+        for engine, names, helper, app in ((module.Podman(), helpers, "default", "k8s-file"),
+                                           (module.Docker(), docker_helpers, "none", "json-file")):
+            with self.subTest(engine=engine.name):
+                self.assertEqual(self.run_log_drivers(engine), {**dict.fromkeys(names, helper), "app": app})
 
     def test_podman_uses_its_own_store(self):
         with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
                 unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path("/r")), \
                 unittest.mock.patch.object(Path, "mkdir"), unittest.mock.patch.object(Path, "chmod"), \
                 unittest.mock.patch.object(module, "containers_conf", return_value=Path("/r/containers.conf")):
-            argv = module.podman_argv("ps")
-            env = module.podman_env()
+            argv = module.Podman().argv("ps")
+            env = module.Podman().env()
         self.assertEqual(argv, ["podman", "--root", "/s/graph", "--runroot", "/r/containers", "--tmpdir",
                                 "/r/libpod/tmp", "--network-config-dir", "/s/networks", "--volumepath", "/s/volumes",
                                 "ps"])
@@ -324,8 +340,10 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(env["CONTAINERS_CONF_OVERRIDE"], "/r/containers.conf")
 
     def test_asset_build_uses_repo_files_only(self):
-        args = module.asset_build_args("egress", "tag")
-        self.assertEqual(args[-1], str(module.ASSETS))
+        for engine in (module.Podman(), module.Docker()):
+            with self.subTest(engine=engine.name):
+                args = engine.asset_build_args("egress", "tag")
+                self.assertEqual(args[-1], str(module.ASSETS))
 
     def test_host_networks_add_global_ipv6_prefixes(self):
         links = [{"addr_info": [{"local": "192.0.2.5", "prefixlen": 24},
@@ -334,11 +352,162 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(module.host_networks(links),
                          ["192.0.2.5", "2001:db8:1:2::/64", "fe80::1"])
 
-    def test_podman_env_drops_host_values(self):
-        with unittest.mock.patch.dict(os.environ, {CANARY: "1", "SSH_AUTH_SOCK": "/x"}):
-            env = module.podman_env()
-        self.assertNotIn(CANARY, env)
-        self.assertNotIn("SSH_AUTH_SOCK", env)
+    def test_engine_env_drops_host_values(self):
+        for engine in (module.Podman(), module.Docker()):
+            with self.subTest(engine=engine.name), tempfile.TemporaryDirectory() as directory, \
+                    unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)), \
+                    unittest.mock.patch.object(module, "docker_host", return_value="unix:///d.sock"), \
+                    unittest.mock.patch.dict(os.environ, {CANARY: "1", "SSH_AUTH_SOCK": "/x"}):
+                env = engine.env()
+            self.assertNotIn(CANARY, env)
+            self.assertNotIn("SSH_AUTH_SOCK", env)
+
+    def test_docker_uses_an_empty_client_config(self):
+        module.docker_host.cache_clear()
+        self.addCleanup(module.docker_host.cache_clear)
+        with tempfile.TemporaryDirectory() as directory, \
+                unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)), \
+                unittest.mock.patch.dict(os.environ, {"DOCKER_HOST": "unix:///d.sock", "DOCKER_CONTEXT": "c",
+                                                      "DOCKER_CONFIG": "/user/docker", "HTTP_PROXY": "http://p"}):
+            env = module.Docker().env()
+            config = Path(env["DOCKER_CONFIG"])
+            self.assertEqual(config, Path(directory) / "docker-config")
+            self.assertEqual(list(config.iterdir()), [])
+        self.assertEqual(env["DOCKER_HOST"], "unix:///d.sock")
+        self.assertNotIn("DOCKER_CONTEXT", env)
+        self.assertNotIn("HTTP_PROXY", env)
+        self.assertEqual(module.Docker().argv("ps"), ["docker", "ps"])
+
+    def test_docker_host_comes_from_the_user_context(self):
+        module.docker_host.cache_clear()
+        self.addCleanup(module.docker_host.cache_clear)
+        answer = subprocess.CompletedProcess([], 0, "ssh://builder\n", "")
+        environ = {key: value for key, value in os.environ.items() if key != "DOCKER_HOST"}
+        with unittest.mock.patch.dict(os.environ, environ, clear=True), \
+                unittest.mock.patch.object(module.subprocess, "run", return_value=answer) as run:
+            self.assertEqual(module.docker_host(), "ssh://builder")
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "context", "inspect"])
+
+    def test_each_worktree_loads_its_own_image_name(self):
+        first = module.Sandbox(Path("/w/one"), module.parse_config({"name": "app"}))
+        second = module.Sandbox(Path("/w/two"), module.parse_config({"name": "app"}))
+        self.assertEqual(module.builder_args(first, "builder")[-1], first.image)
+        self.assertEqual(module.builder_args(second, "builder")[-1], second.image)
+        self.assertNotEqual(first.image, second.image)
+        self.assertIn('docker-archive:/tmp/image.tar:$3', module.BUILD_SCRIPT)
+
+
+class EngineTests(unittest.TestCase):
+    def setUp(self):
+        module.engine.cache_clear()
+        self.addCleanup(module.engine.cache_clear)
+        self.config = tempfile.TemporaryDirectory()
+        self.addCleanup(self.config.cleanup)
+        environ = unittest.mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.config.name})
+        environ.start()
+        self.addCleanup(environ.stop)
+        os.environ.pop(module.ENGINE_VARIABLE, None)
+
+    def write_settings(self, text):
+        path = Path(self.config.name) / "hc" / "sandbox.toml"
+        path.parent.mkdir()
+        path.write_text(text)
+
+    def test_podman_is_the_default(self):
+        self.assertEqual(module.engine().name, "podman")
+
+    def test_settings_file_picks_the_engine(self):
+        self.write_settings('engine = "docker"\n')
+        self.assertEqual(module.engine().name, "docker")
+
+    def test_variable_wins_over_the_file(self):
+        self.write_settings('engine = "docker"\n')
+        with unittest.mock.patch.dict(os.environ, {module.ENGINE_VARIABLE: "podman"}):
+            self.assertEqual(module.engine().name, "podman")
+
+    def test_unknown_engine_is_refused(self):
+        with unittest.mock.patch.dict(os.environ, {module.ENGINE_VARIABLE: "lxc"}), \
+                self.assertRaises(module.SandboxError):
+            module.engine()
+
+    def test_unknown_setting_is_refused(self):
+        self.write_settings('engine = "docker"\nflags = ["--privileged"]\n')
+        with self.assertRaises(module.SandboxError):
+            module.engine()
+
+
+def fake_engine(calls, stdout=""):
+    def run(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+    return unittest.mock.patch.object(module, "run_engine", side_effect=run)
+
+
+class DockerTests(unittest.TestCase):
+    def setUp(self):
+        self.sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app", "port": 8000}))
+
+    def test_run_filter_loads_before_the_app_starts(self):
+        calls = []
+        with fake_engine(calls), unittest.mock.patch.object(module, "exists", return_value=True):
+            app, browser = module.Docker().create_run_network(self.sandbox, ["--publish", "127.0.0.1::8000"])
+        self.assertEqual(calls[0], ("network", "create", "--internal", *self.sandbox.labels(), self.sandbox.network))
+        infra, run_filter = calls[1], calls[2]
+        self.assertEqual(infra[infra.index("--name") + 1], self.sandbox.infra)
+        self.assertEqual(infra[infra.index("--network") + 1], self.sandbox.network)
+        self.assertEqual(infra[infra.index("--hostname") + 1], self.sandbox.pod)
+        self.assertEqual(infra[infra.index("--publish") + 1], "127.0.0.1::8000")
+        self.assertEqual(run_filter[run_filter.index("--network") + 1], f"container:{self.sandbox.infra}")
+        self.assertEqual(run_filter[-2:], ("-f", "/etc/hc-sandbox/run.nft"))
+        self.assertEqual(app, ["--network", f"container:{self.sandbox.infra}"])
+        self.assertEqual(browser, app)
+
+    def test_run_filter_refuses_new_connections_out(self):
+        rules = (module.ASSETS / "run.nft").read_text()
+        self.assertIn("ct state established,related accept", rules)
+        self.assertIn("ip daddr 127.0.0.11 reject", rules)
+        self.assertLess(rules.index("127.0.0.11"), rules.index("fib daddr type local accept"))
+        self.assertEqual(rules.split("accept")[-1].split()[0], "reject")
+
+    def test_publish_prints_the_port_of_the_holder(self):
+        asked = []
+
+        def run(*args, **kwargs):
+            if args[0] == "port":
+                asked.append(args[1])
+            return subprocess.CompletedProcess(args, 0, "127.0.0.1:41234\n", "")
+
+        output = io.StringIO()
+        with unittest.mock.patch.object(module, "engine", return_value=module.Docker()), \
+                unittest.mock.patch.object(module, "run_engine", side_effect=run), \
+                unittest.mock.patch.object(module, "exists", return_value=True), \
+                unittest.mock.patch.object(module, "open_out_dir", return_value=os.open("/", os.O_RDONLY)), \
+                unittest.mock.patch.object(module, "app_ready", return_value=True), \
+                unittest.mock.patch.object(module, "app_running", return_value=True), \
+                contextlib.redirect_stdout(output):
+            module.up(self.sandbox, True)
+        self.assertEqual(asked, [self.sandbox.infra])
+        self.assertIn("http://127.0.0.1:41234/", output.getvalue())
+
+    def test_egress_uses_a_public_resolver(self):
+        args = module.Docker().egress_network_args()
+        self.assertFalse(module.ipaddress.ip_address(args[args.index("--dns") + 1]).is_private)
+
+    def test_list_shows_one_row_for_each_sandbox(self):
+        rows = f"{self.sandbox.infra}\tUp 1 minute\t/w\n{self.sandbox.app}\tUp 1 minute\t/w\n"
+        with fake_engine([], rows):
+            self.assertEqual(module.Docker().list_sandboxes(), [(self.sandbox.pod, "Up 1 minute", "/w")])
+
+    def test_root_daemon_gives_a_warning(self):
+        for options, warned in (('["name=seccomp,profile=builtin"]', True),
+                                ('["name=seccomp,profile=builtin","name=rootless"]', False)):
+            with self.subTest(options=options), fake_engine([], options):
+                self.assertEqual(bool(module.Docker().warnings()), warned)
+
+    def test_no_warning_when_the_daemon_does_not_answer(self):
+        failed = subprocess.CompletedProcess([], 1, "", "")
+        with unittest.mock.patch.object(module, "run_engine", return_value=failed):
+            self.assertEqual(module.Docker().warnings(), [])
 
 
 def lan_address():
@@ -389,12 +558,12 @@ def journal_lines(worktree):
 
 def log_drivers(worktree):
     pod = f"hcsb-{sandbox_id(worktree)}"
-    names = subprocess.run(module.podman_argv("ps", "--all", "--filter", f"pod={pod}", "--format", "{{.Names}}"),
-                           env=module.podman_env(), capture_output=True, text=True, check=True).stdout.split()
+    names = subprocess.run(module.Podman().argv("ps", "--all", "--filter", f"pod={pod}", "--format", "{{.Names}}"),
+                           env=module.Podman().env(), capture_output=True, text=True, check=True).stdout.split()
     drivers = {}
     for name in names:
-        driver = subprocess.run(module.podman_argv("inspect", "--format", "{{.HostConfig.LogConfig.Type}}", name),
-                                env=module.podman_env(), capture_output=True, text=True, check=True).stdout.strip()
+        driver = subprocess.run(module.Podman().argv("inspect", "--format", "{{.HostConfig.LogConfig.Type}}", name),
+                                env=module.Podman().env(), capture_output=True, text=True, check=True).stdout.strip()
         drivers[name.rsplit("-", 1)[-1]] = driver
     return drivers
 
@@ -409,7 +578,7 @@ def probe_states(output, marker="PROBE"):
     return states
 
 
-@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run engine tests")
 class ExampleEndToEnd(unittest.TestCase):
     def test_build_up_test(self):
         with e2e_directory() as directory:
@@ -422,13 +591,14 @@ class ExampleEndToEnd(unittest.TestCase):
                 self.assertTrue((worktree / ".hc-sandbox" / "out" / "index.png").stat().st_size > 1000)
                 logs = sandbox(worktree, "logs")
                 self.assertIn("GET /", logs.stdout + logs.stderr)
-                self.assertEqual(log_drivers(worktree), {"app": "k8s-file", "browser": "none", "infra": "none"})
-                self.assertEqual(journal_lines(worktree), 0)
+                if module.engine_name() == "podman":
+                    self.assertEqual(log_drivers(worktree), {"app": "k8s-file", "browser": "none", "infra": "none"})
+                    self.assertEqual(journal_lines(worktree), 0)
             finally:
                 sandbox(worktree, "down")
 
 
-@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run engine tests")
 class BuildEscapeTests(unittest.TestCase):
     def build_output(self, containerfile):
         with e2e_directory() as directory:
@@ -452,7 +622,7 @@ class BuildEscapeTests(unittest.TestCase):
                         self.assertNotIn(CANARY_BODY, output)
 
 
-@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run Podman tests")
+@unittest.skipUnless(E2E, "set HC_SANDBOX_E2E=1 to run engine tests")
 class EscapeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -489,14 +659,26 @@ class EscapeTests(unittest.TestCase):
     def test_egress_filter_holds_each_host_network(self):
         image = module.ensure_asset_image("egress")
         networks = module.host_addresses()
-        result = module.podman("run", "--rm", "--network", "none", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
-                               "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c",
-                               '/etc/hc-sandbox/egress-start.sh "$@" && nft list table inet hc_sandbox', "filter",
-                               *networks, capture=True)
+        result = module.run_engine("run", "--rm", "--network", "none", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                                   "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c",
+                                   '/etc/hc-sandbox/egress-start.sh "$@" && nft list table inet hc_sandbox',
+                                   "filter", *networks, capture=True)
         listed = set(re.findall(r"[0-9a-f.:]+(?:/[0-9]+)?", result.stdout))
         self.assertTrue(networks)
         for network in networks:
             self.assertIn(network, listed)
+
+    def test_run_filter_refuses_new_connections_out(self):
+        image = module.ensure_asset_image("egress")
+        script = ("wget -q -T 3 -O /dev/null http://1.1.1.1/ && echo before-open; nft -f /etc/hc-sandbox/run.nft; "
+                  "(nc -l -p 9000 -e echo local-open &); sleep 1; nc 127.0.0.1 9000; "
+                  "wget -q -T 3 -O /dev/null http://1.1.1.1/ && echo outside-open || echo outside-closed")
+        result = module.run_engine("run", "--rm", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                                   "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c", script,
+                                   capture=True)
+        self.assertIn("before-open", result.stdout)
+        self.assertIn("local-open", result.stdout)
+        self.assertIn("outside-closed", result.stdout)
 
     def test_build_reaches_public_internet_only(self):
         for marker in ("PROBE", "HOSTNET"):
@@ -542,6 +724,7 @@ class EscapeTests(unittest.TestCase):
             f"import os,sys; sys.exit(3 if os.path.exists('/work') or os.path.exists({str(self.worktree)!r}) else 0)")
         self.assertEqual(code, 0, output)
 
+    @unittest.skipUnless(module.engine_name() == "podman", "only Podman keeps the sandbox in its own store")
     def test_user_podman_sees_nothing_from_the_sandbox(self):
         env = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
                if key in os.environ}

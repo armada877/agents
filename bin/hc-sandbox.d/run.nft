@@ -1,0 +1,9 @@
+table inet hc_sandbox_run {
+  chain out {
+    type filter hook output priority 0; policy accept;
+    ct state established,related accept
+    ip daddr 127.0.0.11 reject
+    fib daddr type local accept
+    reject
+  }
+}
