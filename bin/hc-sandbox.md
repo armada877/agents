@@ -240,3 +240,9 @@ engine socket, read the host environment, or write to the worktree. They check
 that a published port binds to `127.0.0.1` only. With Podman, while the
 sandbox runs, they check that the plain `podman` commands of the user show
 nothing from it.
+
+The Docker path had a partial test only. The `docker` command ran against a
+rootless Podman API socket in the sandbox store. The build step passed. The
+run step failed in this setup, because the Podman DNS helper did not start
+in the sandbox runtime folder. A real Docker daemon has no such helper. Unit
+tests cover the Docker run step.
