@@ -40,9 +40,13 @@ The wrapper refuses other values and unknown keys. The commands, the config
 file, and the limits are the same for each engine. The sections below give
 the differences.
 
-For Docker, the wrapper uses the `docker` command. It keeps `DOCKER_HOST`,
-`DOCKER_CONTEXT`, and `DOCKER_CONFIG` from the environment. If the daemon is
-not rootless, each command gives a warning. See the residual risks.
+For Docker, the wrapper uses the `docker` command. It finds the daemon
+address in `DOCKER_HOST`, or else in the current Docker context. Then it runs
+each command with that address and an empty Docker config folder in the
+runtime folder. So the Docker config of the user does not apply. The Docker
+command adds proxy settings from that config to each new container, and an
+empty config stops this. A context with TLS files does not work. If the
+daemon is not rootless, each command gives a warning. See the residual risks.
 
 ## Config file
 
@@ -82,7 +86,7 @@ See `examples/sandbox-hello` for a full example.
 | Host, LAN, tailnet, link-local | Refused by the filter | No route |
 | Host folders | None. The worktree arrives as a copy. | None |
 | Volumes | `/cache`; the layer store | `/cache` |
-| Capabilities | Each step: CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, in the user namespace | None |
+| Capabilities | Each step: CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, in the user namespace of the engine | None |
 | `no-new-privileges` | Yes | Yes |
 | Host environment | None | None |
 | Engine socket | Not mounted | Not mounted |
@@ -124,11 +128,22 @@ there to the host resolver. With Docker, DNS goes to the public resolver
 ### The run step
 
 With Podman, the pod uses an internal network with no DNS. The app and the
-browser share the pod. Docker has no pods. The app joins an internal network
-with the pod name as its host name. The browser joins the network namespace
-of the app. Docker gives an internal network its own DNS. It resolves only
-the names on that network. Neither container has a host folder. The app runs the code
-from its image. Rebuild to change it.
+browser share the pod. Neither container has a host folder. The app runs
+the code from its image. Rebuild to change it.
+
+Docker has no pods. A Docker internal network also lets a container connect
+to host services on its gateway address. So the wrapper makes its own pod:
+
+1. A holder container joins an internal network, with the pod name as its
+   host name and the published port. It has no capabilities and only waits.
+2. A second container joins the network namespace of the holder with only
+   `NET_ADMIN`. It loads `hc-sandbox.d/run.nft` and stops.
+3. The app and the browser join the network namespace of the holder.
+
+The rules accept replies and connections to the addresses of the namespace.
+They refuse each other new outgoing connection, also to the gateway. They
+refuse the Docker DNS server at `127.0.0.11`. The app and the browser have no
+`NET_ADMIN`, so they cannot change the rules.
 
 The browser container has headless Chromium. The wrapper copies each
 screenshot from the browser into `.hc-sandbox/out/` in the worktree. Git
@@ -152,7 +167,8 @@ This default also covers the pod infra container, which takes no log flag.
 | App | `k8s-file`, 10 MB at most | `hc-sandbox logs` reads it. |
 
 Docker has no such override file. So each Docker helper container gets
-`--log-driver none`, and the app gets `json-file` with 10 MB at most.
+`--log-driver none`, and the app gets `json-file` with one file of 10 MB at
+most.
 
 ### Podman storage
 
@@ -195,12 +211,13 @@ file and does not write through an old link.
 
 - The build step can send data to any public address. A build can leak the
   worktree contents.
-- DNS in the build step uses the host resolver. A build can resolve tailnet
-  names. It cannot connect to them.
+- With Podman, DNS in the build step uses the host resolver. A build can
+  resolve tailnet names. It cannot connect to them. With Docker, DNS goes to
+  `9.9.9.9`, so that resolver sees each name that a build looks up.
 - The app can write to the cache volume. Each worktree has its own cache
   volume and layer store.
 - The builder has `SYS_ADMIN` and `SYS_CHROOT` in the user namespace of the
-  sandbox store. `buildah` needs `SYS_ADMIN` for its mounts. Without it,
+  engine. With Podman, this is the user namespace of the sandbox store. `buildah` needs `SYS_ADMIN` for its mounts. Without it,
   `buildah` tries to make its own user namespace and cannot write the ID map.
   `buildah --isolation chroot` needs `SYS_CHROOT` for each `RUN` step. The
   `RUN` steps get neither capability. The builder does not get `MKNOD`.
@@ -245,4 +262,6 @@ The Docker path had a partial test only. The `docker` command ran against a
 rootless Podman API socket in the sandbox store. The build step passed. The
 run step failed in this setup, because the Podman DNS helper did not start
 in the sandbox runtime folder. A real Docker daemon has no such helper. Unit
-tests cover the Docker run step.
+tests cover the Docker run step. An escape test loads `run.nft` in a
+container on the default network of the engine. It checks that the container
+reaches the internet before the rules load, and only its own address after.

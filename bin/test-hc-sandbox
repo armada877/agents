@@ -275,7 +275,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("NET_ADMIN", added)
         self.assertIn("no-new-privileges", args)
         self.assertFalse([arg for arg in args if arg.startswith("/w") or ":/w" in arg or "/w:" in arg])
-        self.assertEqual(args[-2:], [module.STEP_CAPS, "Containerfile"])
+        self.assertEqual(args[-3:], [module.STEP_CAPS, "Containerfile", sandbox.image])
         self.assertNotIn("SYS_ADMIN", module.STEP_CAPS)
         self.assertNotIn("MKNOD", module.BUILDER_CAPS)
 
@@ -307,18 +307,24 @@ class ArgumentTests(unittest.TestCase):
                 pass
             module.up(sandbox, False)
             runs.append(tuple(module.builder_args(sandbox, "builder")))
-        drivers = {args[args.index("--name") + 1] if "--name" in args else "egress setup":
-                   args[args.index("--log-driver") + 1] if "--log-driver" in args else "default"
-                   for args in runs}
-        names = {sandbox.egress: "egress", "egress setup": "egress setup", sandbox.app: "app",
+        names = {sandbox.egress: "egress", sandbox.infra: "infra", sandbox.app: "app",
                  sandbox.browser: "browser", sandbox.builder: "builder"}
-        return {names[name]: driver for name, driver in drivers.items()}
+
+        def name(args):
+            if "--name" in args:
+                return names[args[args.index("--name") + 1]]
+            return "run filter" if "nft" in args else "egress setup"
+
+        return {name(args): args[args.index("--log-driver") + 1] if "--log-driver" in args else "default"
+                for args in runs}
 
     def test_only_the_app_keeps_a_log(self):
         helpers = ("egress", "egress setup", "browser", "builder")
-        for engine, helper, app in ((module.Podman(), "default", "k8s-file"), (module.Docker(), "none", "json-file")):
+        docker_helpers = (*helpers, "infra", "run filter")
+        for engine, names, helper, app in ((module.Podman(), helpers, "default", "k8s-file"),
+                                           (module.Docker(), docker_helpers, "none", "json-file")):
             with self.subTest(engine=engine.name):
-                self.assertEqual(self.run_log_drivers(engine), {**dict.fromkeys(helpers, helper), "app": app})
+                self.assertEqual(self.run_log_drivers(engine), {**dict.fromkeys(names, helper), "app": app})
 
     def test_podman_uses_its_own_store(self):
         with unittest.mock.patch.object(module, "sandbox_storage_dir", return_value=Path("/s")), \
@@ -354,18 +360,39 @@ class ArgumentTests(unittest.TestCase):
             self.assertNotIn(CANARY, env)
             self.assertNotIn("SSH_AUTH_SOCK", env)
 
-    def test_docker_env_keeps_the_daemon_address(self):
-        with unittest.mock.patch.dict(os.environ, {"DOCKER_HOST": "unix:///d.sock"}):
-            self.assertEqual(module.Docker().env()["DOCKER_HOST"], "unix:///d.sock")
+    def test_docker_uses_an_empty_client_config(self):
+        module.docker_host.cache_clear()
+        self.addCleanup(module.docker_host.cache_clear)
+        with tempfile.TemporaryDirectory() as directory, \
+                unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)), \
+                unittest.mock.patch.dict(os.environ, {"DOCKER_HOST": "unix:///d.sock", "DOCKER_CONTEXT": "c",
+                                                      "DOCKER_CONFIG": "/user/docker", "HTTP_PROXY": "http://p"}):
+            env = module.Docker().env()
+            config = Path(env["DOCKER_CONFIG"])
+            self.assertEqual(config, Path(directory) / "docker-config")
+            self.assertEqual(list(config.iterdir()), [])
+        self.assertEqual(env["DOCKER_HOST"], "unix:///d.sock")
+        self.assertNotIn("DOCKER_CONTEXT", env)
+        self.assertNotIn("HTTP_PROXY", env)
         self.assertEqual(module.Docker().argv("ps"), ["docker", "ps"])
 
-    def test_loaded_image_name_is_read_from_both_engines(self):
-        for output, name in (("Loaded image: localhost/hc-sandbox-build:latest\n", "localhost/hc-sandbox-build:latest"),
-                             ("Loaded image ID: sha256:abc\n", "sha256:abc"),
-                             ("Loaded image: docker.io/library/b:latest,localhost/b:latest\n",
-                              "docker.io/library/b:latest")):
-            with self.subTest(output=output):
-                self.assertEqual(re.search(module.LOADED_IMAGE, output).group(1), name)
+    def test_docker_host_comes_from_the_user_context(self):
+        module.docker_host.cache_clear()
+        self.addCleanup(module.docker_host.cache_clear)
+        answer = subprocess.CompletedProcess([], 0, "ssh://builder\n", "")
+        environ = {key: value for key, value in os.environ.items() if key != "DOCKER_HOST"}
+        with unittest.mock.patch.dict(os.environ, environ, clear=True), \
+                unittest.mock.patch.object(module.subprocess, "run", return_value=answer) as run:
+            self.assertEqual(module.docker_host(), "ssh://builder")
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "context", "inspect"])
+
+    def test_each_worktree_loads_its_own_image_name(self):
+        first = module.Sandbox(Path("/w/one"), module.parse_config({"name": "app"}))
+        second = module.Sandbox(Path("/w/two"), module.parse_config({"name": "app"}))
+        self.assertEqual(module.builder_args(first, "builder")[-1], first.image)
+        self.assertEqual(module.builder_args(second, "builder")[-1], second.image)
+        self.assertNotEqual(first.image, second.image)
+        self.assertIn('docker-archive:/tmp/image.tar:$3', module.BUILD_SCRIPT)
 
 
 class EngineTests(unittest.TestCase):
@@ -418,21 +445,34 @@ class DockerTests(unittest.TestCase):
     def setUp(self):
         self.sandbox = module.Sandbox(Path("/w"), module.parse_config({"name": "app", "port": 8000}))
 
-    def test_browser_shares_the_app_network(self):
+    def test_run_filter_loads_before_the_app_starts(self):
         calls = []
-        with fake_engine(calls):
+        with fake_engine(calls), unittest.mock.patch.object(module, "exists", return_value=True):
             app, browser = module.Docker().create_run_network(self.sandbox, ["--publish", "127.0.0.1::8000"])
-        self.assertEqual(calls, [("network", "create", "--internal", *self.sandbox.labels(), self.sandbox.network)])
-        self.assertEqual(app, ["--network", self.sandbox.network, "--hostname", self.sandbox.pod,
-                               "--network-alias", self.sandbox.pod, "--publish", "127.0.0.1::8000"])
-        self.assertEqual(browser, ["--network", f"container:{self.sandbox.app}"])
+        self.assertEqual(calls[0], ("network", "create", "--internal", *self.sandbox.labels(), self.sandbox.network))
+        infra, run_filter = calls[1], calls[2]
+        self.assertEqual(infra[infra.index("--name") + 1], self.sandbox.infra)
+        self.assertEqual(infra[infra.index("--network") + 1], self.sandbox.network)
+        self.assertEqual(infra[infra.index("--hostname") + 1], self.sandbox.pod)
+        self.assertEqual(infra[infra.index("--publish") + 1], "127.0.0.1::8000")
+        self.assertEqual(run_filter[run_filter.index("--network") + 1], f"container:{self.sandbox.infra}")
+        self.assertEqual(run_filter[-2:], ("-f", "/etc/hc-sandbox/run.nft"))
+        self.assertEqual(app, ["--network", f"container:{self.sandbox.infra}"])
+        self.assertEqual(browser, app)
+
+    def test_run_filter_refuses_new_connections_out(self):
+        rules = (module.ASSETS / "run.nft").read_text()
+        self.assertIn("ct state established,related accept", rules)
+        self.assertIn("ip daddr 127.0.0.11 reject", rules)
+        self.assertLess(rules.index("127.0.0.11"), rules.index("fib daddr type local accept"))
+        self.assertEqual(rules.split("accept")[-1].split()[0], "reject")
 
     def test_egress_uses_a_public_resolver(self):
         args = module.Docker().egress_network_args()
         self.assertFalse(module.ipaddress.ip_address(args[args.index("--dns") + 1]).is_private)
 
     def test_list_shows_one_row_for_each_sandbox(self):
-        rows = f"{self.sandbox.app}\tUp 1 minute\t/w\n{self.sandbox.browser}\tUp 1 minute\t/w\n"
+        rows = f"{self.sandbox.infra}\tUp 1 minute\t/w\n{self.sandbox.app}\tUp 1 minute\t/w\n"
         with fake_engine([], rows):
             self.assertEqual(module.Docker().list_sandboxes(), [(self.sandbox.pod, "Up 1 minute", "/w")])
 
@@ -605,6 +645,18 @@ class EscapeTests(unittest.TestCase):
         self.assertTrue(networks)
         for network in networks:
             self.assertIn(network, listed)
+
+    def test_run_filter_refuses_new_connections_out(self):
+        image = module.ensure_asset_image("egress")
+        script = ("wget -q -T 3 -O /dev/null http://1.1.1.1/ && echo before-open; nft -f /etc/hc-sandbox/run.nft; "
+                  "(nc -l -p 9000 -e echo local-open &); sleep 1; nc 127.0.0.1 9000; "
+                  "wget -q -T 3 -O /dev/null http://1.1.1.1/ && echo outside-open || echo outside-closed")
+        result = module.run_engine("run", "--rm", "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                                   "--security-opt", "no-new-privileges", "--entrypoint", "sh", image, "-c", script,
+                                   capture=True)
+        self.assertIn("before-open", result.stdout)
+        self.assertIn("local-open", result.stdout)
+        self.assertIn("outside-closed", result.stdout)
 
     def test_build_reaches_public_internet_only(self):
         for marker in ("PROBE", "HOSTNET"):

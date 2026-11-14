@@ -40,14 +40,12 @@ BUILD_SCRIPT = (
     'set -e; mkdir /ctx; tar -x -C /ctx -f -; '
     'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
     '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx >&2; '
-    'buildah --storage-driver vfs push hc-sandbox-build docker-archive:/tmp/image.tar:hc-sandbox-build:latest >&2; '
+    'buildah --storage-driver vfs push hc-sandbox-build "docker-archive:/tmp/image.tar:$3" >&2; '
     'cat /tmp/image.tar'
 )
 ENGINE_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TERM")
-DOCKER_ENV_KEYS = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG")
 DOCKER_DNS = "9.9.9.9"
 ENGINE_VARIABLE = "HC_SANDBOX_ENGINE"
-LOADED_IMAGE = r"Loaded image(?: ID)?: ([^\s,]+)"
 SETTINGS_KEYS = {"engine"}
 CONFIG_HELP = """config: put hc-sandbox.toml in the worktree root. Only name is required.
 
@@ -225,6 +223,10 @@ class Sandbox:
         return f"hcsb-{self.id}-app"
 
     @property
+    def infra(self):
+        return f"hcsb-{self.id}-infra"
+
+    @property
     def browser(self):
         return f"hcsb-{self.id}-browser"
 
@@ -316,6 +318,7 @@ class Podman:
 
     def remove_run_network(self, sandbox):
         run_engine("pod", "rm", "--force", "--time", "2", sandbox.pod, check=False, quiet=True)
+        run_engine("network", "rm", "--force", sandbox.network, check=False, quiet=True)
 
     def list_sandboxes(self):
         result = run_engine("pod", "ps", "--filter", f"label={LABEL}=1", "--format", "json", capture=True)
@@ -336,7 +339,10 @@ class Docker:
     name = "docker"
 
     def env(self):
-        return {key: os.environ[key] for key in (*ENGINE_ENV_KEYS, *DOCKER_ENV_KEYS) if key in os.environ}
+        env = {key: os.environ[key] for key in ENGINE_ENV_KEYS if key in os.environ}
+        env["DOCKER_HOST"] = docker_host()
+        env["DOCKER_CONFIG"] = str(empty_docker_config())
+        return env
 
     def argv(self, *args):
         return ["docker", *args]
@@ -354,26 +360,36 @@ class Docker:
         return ["--network", "bridge", "--dns", DOCKER_DNS]
 
     def create_run_network(self, sandbox, ports):
+        image = asset_tag("egress")
+        require(exists("image", image), "no egress image: run hc-sandbox build first")
         run_engine("network", "create", "--internal", *sandbox.labels(), sandbox.network, quiet=True)
-        app = ["--network", sandbox.network, "--hostname", sandbox.pod, "--network-alias", sandbox.pod, *ports]
-        return app, ["--network", f"container:{sandbox.app}"]
+        run_engine("run", "--detach", "--name", sandbox.infra, *sandbox.labels(), "--network", sandbox.network,
+                   "--hostname", sandbox.pod, *ports, *HARDENING, *LIMITS, *self.helper_log_args(),
+                   "--entrypoint", "sleep", image, "infinity", quiet=True)
+        run_engine("run", "--rm", *sandbox.labels(), "--network", f"container:{sandbox.infra}",
+                   *self.helper_log_args(), "--cap-drop", "all", "--cap-add", "NET_ADMIN",
+                   "--security-opt", "no-new-privileges", *LIMITS, "--entrypoint", "nft", image,
+                   "-f", "/etc/hc-sandbox/run.nft", quiet=True)
+        shared = ["--network", f"container:{sandbox.infra}"]
+        return shared, shared
 
     def remove_run_network(self, sandbox):
-        for name in (sandbox.browser, sandbox.app):
+        for name in (sandbox.browser, sandbox.app, sandbox.infra):
             run_engine(*self.remove_args(name), check=False, quiet=True)
+        run_engine("network", "rm", sandbox.network, check=False, quiet=True)
 
     def list_sandboxes(self):
         template = "{{.Names}}\t{{.Status}}\t{{.Label \"" + LABEL + ".worktree\"}}"
         result = run_engine("ps", "--all", "--filter", f"label={LABEL}=1", "--format", template, capture=True)
         rows = [line.split("\t", 2) for line in result.stdout.splitlines()]
-        return [(name.removesuffix("-app"), status, worktree) for name, status, worktree in rows
-                if name.endswith("-app")]
+        return [(name.removesuffix("-infra"), status, worktree) for name, status, worktree in rows
+                if name.endswith("-infra")]
 
     def helper_log_args(self):
         return ["--log-driver", "none"]
 
     def app_log_args(self):
-        return ["--log-driver", "json-file", "--log-opt", "max-size=10m"]
+        return ["--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=1"]
 
     def warnings(self):
         result = run_engine("info", "--format", "{{json .SecurityOptions}}", capture=True, check=False, quiet=True)
@@ -383,6 +399,22 @@ class Docker:
 
 
 ENGINES = {engine.name: engine for engine in (Podman, Docker)}
+
+
+@functools.cache
+def docker_host():
+    if os.environ.get("DOCKER_HOST"):
+        return os.environ["DOCKER_HOST"]
+    result = subprocess.run(["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    require(result.returncode == 0 and result.stdout.strip(), "cannot find the Docker daemon address")
+    return result.stdout.strip()
+
+
+def empty_docker_config():
+    path = sandbox_runtime_dir() / "docker-config"
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
 
 
 def settings_file():
@@ -472,7 +504,7 @@ def builder_args(sandbox, builder_image):
             "--network", f"container:{sandbox.egress}", "--cap-drop", "all", *cap_flags(BUILDER_CAPS),
             "--security-opt", "no-new-privileges", *BUILDER_LIMITS,
             "--volume", f"{sandbox.store}:{BUILDER_STORE}", "--volume", f"{sandbox.cache}:/cache",
-            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile]
+            builder_image, "sh", "-c", BUILD_SCRIPT, "build", STEP_CAPS, sandbox.config.containerfile, sandbox.image]
 
 
 def ensure_volume(name):
@@ -558,11 +590,9 @@ def run_builder(sandbox, builder_image):
         write_context(sandbox.fd, builder.stdin)
     with contextlib.suppress(BrokenPipeError):
         builder.stdin.close()
-    loaded_output = loader.communicate()[0]
+    loader.communicate()
     require(builder.wait() == 0, f"the build failed with exit code {builder.returncode}")
-    loaded = re.search(LOADED_IMAGE, loaded_output)
-    require(loader.returncode == 0 and loaded, f"{engine().name} load gave no image")
-    return loaded.group(1)
+    require(loader.returncode == 0 and exists("image", sandbox.image), f"{engine().name} load gave no image")
 
 
 def build(sandbox):
@@ -571,8 +601,7 @@ def build(sandbox):
     builder_image = ensure_asset_image("builder")
     ensure_asset_image("browser")
     with egress_filter(sandbox):
-        loaded = run_builder(sandbox, builder_image)
-    run_engine("tag", loaded, sandbox.image, quiet=True)
+        run_builder(sandbox, builder_image)
     print(f"hc-sandbox: built {sandbox.image}")
 
 
@@ -647,7 +676,6 @@ def down(sandbox, announce=True):
     engine().remove_run_network(sandbox)
     remove_container(sandbox.egress)
     remove_container(sandbox.builder)
-    run_engine("network", "rm", sandbox.network, check=False, quiet=True)
     if announce:
         print(f"hc-sandbox: {sandbox.pod} is down")
 
