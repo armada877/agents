@@ -354,7 +354,9 @@ class ArgumentTests(unittest.TestCase):
 
     def test_engine_env_drops_host_values(self):
         for engine in (module.Podman(), module.Docker()):
-            with self.subTest(engine=engine.name), \
+            with self.subTest(engine=engine.name), tempfile.TemporaryDirectory() as directory, \
+                    unittest.mock.patch.object(module, "sandbox_runtime_dir", return_value=Path(directory)), \
+                    unittest.mock.patch.object(module, "docker_host", return_value="unix:///d.sock"), \
                     unittest.mock.patch.dict(os.environ, {CANARY: "1", "SSH_AUTH_SOCK": "/x"}):
                 env = engine.env()
             self.assertNotIn(CANARY, env)
@@ -466,6 +468,26 @@ class DockerTests(unittest.TestCase):
         self.assertIn("ip daddr 127.0.0.11 reject", rules)
         self.assertLess(rules.index("127.0.0.11"), rules.index("fib daddr type local accept"))
         self.assertEqual(rules.split("accept")[-1].split()[0], "reject")
+
+    def test_publish_prints_the_port_of_the_holder(self):
+        asked = []
+
+        def run(*args, **kwargs):
+            if args[0] == "port":
+                asked.append(args[1])
+            return subprocess.CompletedProcess(args, 0, "127.0.0.1:41234\n", "")
+
+        output = io.StringIO()
+        with unittest.mock.patch.object(module, "engine", return_value=module.Docker()), \
+                unittest.mock.patch.object(module, "run_engine", side_effect=run), \
+                unittest.mock.patch.object(module, "exists", return_value=True), \
+                unittest.mock.patch.object(module, "open_out_dir", return_value=os.open("/", os.O_RDONLY)), \
+                unittest.mock.patch.object(module, "app_ready", return_value=True), \
+                unittest.mock.patch.object(module, "app_running", return_value=True), \
+                contextlib.redirect_stdout(output):
+            module.up(self.sandbox, True)
+        self.assertEqual(asked, [self.sandbox.infra])
+        self.assertIn("http://127.0.0.1:41234/", output.getvalue())
 
     def test_egress_uses_a_public_resolver(self):
         args = module.Docker().egress_network_args()

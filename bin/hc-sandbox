@@ -328,6 +328,9 @@ class Podman:
     def helper_log_args(self):
         return []
 
+    def port_owner(self, sandbox):
+        return sandbox.app
+
     def app_log_args(self):
         return ["--log-driver", "k8s-file", "--log-opt", "max-size=10mb"]
 
@@ -387,6 +390,9 @@ class Docker:
 
     def helper_log_args(self):
         return ["--log-driver", "none"]
+
+    def port_owner(self, sandbox):
+        return sandbox.infra
 
     def app_log_args(self):
         return ["--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=1"]
@@ -654,7 +660,7 @@ def copy_screenshot(sandbox, name):
 
 
 def published_port(sandbox):
-    result = run_engine("port", sandbox.app, f"{sandbox.config.port}/tcp", capture=True, check=False)
+    result = run_engine("port", engine().port_owner(sandbox), f"{sandbox.config.port}/tcp", capture=True, check=False)
     return result.stdout.strip().rsplit(":", 1)[-1] if result.returncode == 0 and result.stdout.strip() else None
 
 
