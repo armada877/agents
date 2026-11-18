@@ -46,7 +46,8 @@ each command with that address and an empty Docker config folder in the
 runtime folder. So the Docker config of the user does not apply. The Docker
 command adds proxy settings from that config to each new container, and an
 empty config stops this. A context with TLS files does not work. If the
-daemon is not rootless, each command gives a warning. See the residual risks.
+daemon has no user namespace or no seccomp filter, `build` stops and the
+other commands give a warning. See the residual risks.
 
 ## Config file
 
@@ -202,10 +203,15 @@ file and does not write through an old link.
 
 ## Residual risks
 
-- A Docker daemon that is not rootless runs each container as root on the
-  host. The limits in the table still apply, but a container escape gives
-  root on the host. The builder has `SYS_ADMIN` as this root. Use rootless
-  Docker or Podman where you can.
+- `build` stops unless the engine has a user namespace and a seccomp
+  filter. Podman must run rootless. Docker must run rootless or with
+  `userns-remap`. If the engine does not answer, `build` stops. A Docker
+  daemon that runs as root with no remap gives the builder `SYS_ADMIN` as
+  host root, so `build` refuses it. The other commands only print a warning.
+- The check reads what the engine reports. It does not measure the UID map
+  or the seccomp profile of each container. The engine default profile
+  applies. A profile made for `SYS_ADMIN` permits more calls than a profile
+  for a plain step.
 - With Docker, any user of the daemon can see, stop, or change the sandbox
   containers.
 
@@ -217,10 +223,15 @@ file and does not write through an old link.
 - The app can write to the cache volume. Each worktree has its own cache
   volume and layer store.
 - The builder has `SYS_ADMIN` and `SYS_CHROOT` in the user namespace of the
-  engine. With Podman, this is the user namespace of the sandbox store. `buildah` needs `SYS_ADMIN` for its mounts. Without it,
-  `buildah` tries to make its own user namespace and cannot write the ID map.
+  engine. With rootless Podman, this is the user namespace of the user who
+  runs it. The separate sandbox store separates data, not namespaces.
+  `buildah` needs `SYS_ADMIN` for its mounts. Without it, `buildah` tries to
+  make its own user namespace and cannot write the ID map.
   `buildah --isolation chroot` needs `SYS_CHROOT` for each `RUN` step. The
-  `RUN` steps get neither capability. The builder does not get `MKNOD`.
+  `RUN` steps get neither capability in the builder namespace. A step can
+  make a nested user namespace if seccomp allows it. Capabilities in that
+  namespace give no power in the builder namespace. The builder does not
+  get `MKNOD`.
 - The builder has no registry credentials. A private base image does not
   work.
 - Chromium runs with `--no-sandbox`. The container is its sandbox.

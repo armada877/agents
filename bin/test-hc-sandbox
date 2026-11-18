@@ -498,16 +498,40 @@ class DockerTests(unittest.TestCase):
         with fake_engine([], rows):
             self.assertEqual(module.Docker().list_sandboxes(), [(self.sandbox.pod, "Up 1 minute", "/w")])
 
-    def test_root_daemon_gives_a_warning(self):
-        for options, warned in (('["name=seccomp,profile=builtin"]', True),
-                                ('["name=seccomp,profile=builtin","name=rootless"]', False)):
+    def test_daemon_needs_a_user_namespace_and_seccomp(self):
+        for options, safe in (('["name=seccomp,profile=builtin"]', False),
+                              ('["name=rootless"]', False),
+                              ('["name=seccomp,profile=unconfined","name=rootless"]', False),
+                              ('["name=seccomp,profile=builtin","name=rootless"]', True),
+                              ('["name=seccomp,profile=builtin","name=userns"]', True),
+                              ('null', False), ('not json', False)):
             with self.subTest(options=options), fake_engine([], options):
-                self.assertEqual(bool(module.Docker().warnings()), warned)
+                self.assertEqual(module.Docker().isolation_problems() == [], safe)
 
-    def test_no_warning_when_the_daemon_does_not_answer(self):
+    def test_daemon_that_does_not_answer_is_not_safe(self):
         failed = subprocess.CompletedProcess([], 1, "", "")
         with unittest.mock.patch.object(module, "run_engine", return_value=failed):
-            self.assertEqual(module.Docker().warnings(), [])
+            self.assertNotEqual(module.Docker().isolation_problems(), [])
+
+    def test_build_refuses_an_engine_with_no_user_namespace(self):
+        calls = []
+        with fake_engine(calls, '["name=seccomp,profile=builtin"]'), \
+                unittest.mock.patch.object(module, "engine", return_value=module.Docker()):
+            with self.assertRaisesRegex(module.SandboxError, "user namespace"):
+                module.build(self.sandbox)
+        self.assertEqual([call[0] for call in calls], ["info"])
+
+
+class PodmanIsolationTests(unittest.TestCase):
+    def test_podman_needs_rootless_and_seccomp(self):
+        for answer, safe in (("true true\n", True), ("false true\n", False), ("true false\n", False), ("", False)):
+            with self.subTest(answer=answer), fake_engine([], answer):
+                self.assertEqual(module.Podman().isolation_problems() == [], safe)
+
+    def test_podman_that_does_not_answer_is_not_safe(self):
+        failed = subprocess.CompletedProcess([], 1, "", "")
+        with unittest.mock.patch.object(module, "run_engine", return_value=failed):
+            self.assertNotEqual(module.Podman().isolation_problems(), [])
 
 
 def lan_address():
