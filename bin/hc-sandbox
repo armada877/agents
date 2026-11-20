@@ -37,7 +37,9 @@ BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
 GLOBAL_IPV6 = ipaddress.ip_network("2000::/3")
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 BUILD_SCRIPT = (
-    'set -e; mkdir /ctx; tar -x -C /ctx -f -; '
+    'set -e; grep -q "^Seccomp:[[:space:]]*2$" /proc/self/status '
+    '|| { echo "hc-sandbox: the builder has no seccomp filter" >&2; exit 97; }; '
+    'mkdir /ctx; tar -x -C /ctx -f -; '
     'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
     '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx >&2; '
     'buildah --storage-driver vfs push hc-sandbox-build "docker-archive:/tmp/image.tar:$3" >&2; '
@@ -334,8 +336,14 @@ class Podman:
     def app_log_args(self):
         return ["--log-driver", "k8s-file", "--log-opt", "max-size=10mb"]
 
-    def warnings(self):
-        return []
+    def isolation_problems(self):
+        result = run_engine("info", "--format", "{{.Host.Security.Rootless}} {{.Host.Security.SECCOMPEnabled}}",
+                            capture=True, check=False, quiet=True)
+        if result.returncode:
+            return ["cannot read the Podman security settings"]
+        rootless, seccomp = (result.stdout.split() + ["", ""])[:2]
+        return [problem for passed, problem in ((rootless == "true", "Podman does not run rootless"),
+                                                (seccomp == "true", "Podman has no seccomp filter")) if not passed]
 
 
 class Docker:
@@ -397,11 +405,29 @@ class Docker:
     def app_log_args(self):
         return ["--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=1"]
 
-    def warnings(self):
+    def isolation_problems(self):
         result = run_engine("info", "--format", "{{json .SecurityOptions}}", capture=True, check=False, quiet=True)
-        if result.returncode or "name=rootless" in result.stdout:
-            return []
-        return ["the Docker daemon is not rootless. Its containers run as root on the host. See hc-sandbox.md."]
+        options = docker_security_options(result.stdout) if result.returncode == 0 else None
+        if options is None:
+            return ["cannot read the Docker security settings"]
+        names = {option.get("name") for option in options}
+        seccomp = [option for option in options if option.get("name") == "seccomp"]
+        problems = []
+        if not names & {"rootless", "userns"}:
+            problems.append("the Docker daemon runs as root with no user namespace remap")
+        if not seccomp or any(option.get("profile") == "unconfined" for option in seccomp):
+            problems.append("Docker has no seccomp filter")
+        return problems
+
+
+def docker_security_options(text):
+    try:
+        options = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(options, list) or not all(isinstance(option, str) for option in options):
+        return None
+    return [dict(part.split("=", 1) for part in option.split(",") if "=" in part) for option in options]
 
 
 ENGINES = {engine.name: engine for engine in (Podman, Docker)}
@@ -601,7 +627,13 @@ def run_builder(sandbox, builder_image):
     require(loader.returncode == 0 and exists("image", sandbox.image), f"{engine().name} load gave no image")
 
 
+def require_engine_isolation():
+    problems = engine().isolation_problems()
+    require(not problems, f"the {engine().name} engine cannot hold a build: {'; '.join(problems)}. See hc-sandbox.md.")
+
+
 def build(sandbox):
+    require_engine_isolation()
     ensure_volume(sandbox.cache)
     ensure_volume(sandbox.store)
     builder_image = ensure_asset_image("builder")
@@ -779,12 +811,13 @@ def parse_args(argv):
 
 
 def warn_about_engine():
-    for warning in engine().warnings():
-        print(f"hc-sandbox: warning: {warning}", file=sys.stderr)
+    for problem in engine().isolation_problems():
+        print(f"hc-sandbox: warning: {problem}. See hc-sandbox.md.", file=sys.stderr)
 
 
 def run(args):
-    warn_about_engine()
+    if args.command != "build":
+        warn_about_engine()
     if args.command == "ls":
         return list_sandboxes()
     worktree_fd, worktree = open_worktree(find_worktree(Path(args.directory).resolve()), worktrees_root())
