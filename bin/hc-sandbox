@@ -37,7 +37,9 @@ BUILDER_LIMITS = ["--memory", "4g", "--pids-limit", "1024", "--cpus", "4"]
 GLOBAL_IPV6 = ipaddress.ip_network("2000::/3")
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 BUILD_SCRIPT = (
-    'set -e; mkdir /ctx; tar -x -C /ctx -f -; '
+    'set -e; grep -q "^Seccomp:[[:space:]]*2$" /proc/self/status '
+    '|| { echo "hc-sandbox: the builder has no seccomp filter" >&2; exit 97; }; '
+    'mkdir /ctx; tar -x -C /ctx -f -; '
     'buildah --storage-driver vfs bud --isolation chroot --network host --cap-drop ALL --cap-add "$1" '
     '--volume /cache:/cache --file "/ctx/$2" --tag hc-sandbox-build /ctx >&2; '
     'buildah --storage-driver vfs push hc-sandbox-build "docker-archive:/tmp/image.tar:$3" >&2; '

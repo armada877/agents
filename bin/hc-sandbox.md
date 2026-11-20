@@ -208,10 +208,13 @@ file and does not write through an old link.
   `userns-remap`. If the engine does not answer, `build` stops. A Docker
   daemon that runs as root with no remap gives the builder `SYS_ADMIN` as
   host root, so `build` refuses it. The other commands only print a warning.
-- The check reads what the engine reports. It does not measure the UID map
-  or the seccomp profile of each container. The engine default profile
-  applies. A profile made for `SYS_ADMIN` permits more calls than a profile
-  for a plain step.
+- The engine check reads what the engine reports. The engine can report
+  seccomp support and still run a container with no filter. So the builder
+  also reads `/proc/self/status` before it builds. If it has no active
+  seccomp filter, the build stops. Each `RUN` step inherits this filter.
+- The checks do not measure the UID map. They do not judge the seccomp
+  profile. The engine default profile applies. A profile made for
+  `SYS_ADMIN` permits more calls than a profile for a plain step.
 - With Docker, any user of the daemon can see, stop, or change the sandbox
   containers.
 
