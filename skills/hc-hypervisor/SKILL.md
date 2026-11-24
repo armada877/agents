@@ -101,6 +101,12 @@ When the user asks, start the assistant `a` in its own folder, with the
 Run `git init -b main <root>/<Name>`. Make no remote unless the user asks.
 Ask if it is private or public.
 
+Before you start its owner, mark the new repo as trusted. See RULES.md.
+
+```sh
+f=~/.claude.json; jq --arg k <root>/<Name> '.projects[$k].hasTrustDialogAccepted = true' "$f" > "$f.tmp" && chmod 600 "$f.tmp" && mv "$f.tmp" "$f"
+```
+
 ## Cycle your context
 
 Start fresh for each day, or when your context is large.
