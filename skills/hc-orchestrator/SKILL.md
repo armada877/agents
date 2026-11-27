@@ -1,14 +1,13 @@
 ---
 name: hc-orchestrator
 description: >-
-  Own one repo goal. Run hc-sandbox, start workers and a reviewer, and merge
-  after the pass. Finish when the user uses the result.
+  Own one repo goal.
   Use only when told to load hc-orchestrator. Requires HC_TERMINAL_ID.
 ---
 
 # hc owner
 
-Own one goal in one repo. Plan, run, and finish it.
+Plan, run, and finish it.
 Talk directly to the machine owner, "the user". Get the name with
 `git config user.name`.
 
@@ -81,12 +80,11 @@ hc-sandbox down
 
 Read output and `.hc-sandbox/out/` screenshots. Send each finding to the build
 worker. Repeat after each fix. Run `hc-sandbox --help` for config.
-Use fake data. Real data needs user approval.
 
 ## Ask the user
 
 Ask only for scope, wider access, accepted risks, deploys, or actions you
-cannot undo. Make other reversible choices yourself. Record them in `state.md`.
+cannot undo.
 
 1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
@@ -130,7 +128,6 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
 Watch workers with `hc wait --children any` in the background, or with
 `hc wait <worker> --timeout 60`. Read reports on `done` or `idle`.
 On `blocked`, run `hc read <worker> --lines 200` and ask the user.
-Do not answer worker permission prompts.
 
 To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
 Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
@@ -174,7 +171,6 @@ The goal is done when the user uses the result.
 
 Explain why you want to drop the goal.
 Get user approval before you drop the goal.
-Record their words in `state.md`.
 
 Send new features and pivots to the hypervisor as new goals. Quote the user.
 
