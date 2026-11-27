@@ -2,8 +2,8 @@
 
 Every hc agent reads this file. Each line has a date, an end, the rule, and
 its source. Only hard safety rules are permanent. A new rule replaces a line
-or ends on a date. Keep 25 lines or fewer. "Plan" is the plan that the user
-approved on 2026-11-10.
+or ends on a date. Keep 25 rule lines or fewer. "Plan" is the plan that the
+user approved on 2026-11-10.
 
 - 2026-11-10, permanent: Do not run `sudo`. Give the user the exact command to run. (Plan: "no sudo by agents")
 - 2026-11-10, permanent: Do not go around a permission denial or a sandbox. Do not answer a permission or trust prompt for another agent. (Plan)

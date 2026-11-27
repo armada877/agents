@@ -1,13 +1,14 @@
 ---
 name: hc-orchestrator
 description: >-
-  Own one hc goal. Delegate edits, run hc-sandbox, start a reviewer, and merge
-  after approval. Use only when told to load hc-orchestrator. Requires HC_TERMINAL_ID.
+  Own one repo goal. Run hc-sandbox, start workers and a reviewer, and merge
+  after the pass. Finish when the user uses the result.
+  Use only when told to load hc-orchestrator. Requires HC_TERMINAL_ID.
 ---
 
 # hc owner
 
-Own one goal. Plan, run, and finish it. Delegate repo edits.
+Own one goal in one repo. Plan, run, and finish it.
 Talk directly to the machine owner, "the user". Get the name with
 `git config user.name`.
 
@@ -15,8 +16,7 @@ Talk directly to the machine owner, "the user". Get the name with
 
 Do not edit files in the repo. A worker makes each change.
 
-Write only `state.md` and files outside the repo, such as state folder notes.
-Workers edit all code, tests, and docs.
+Write only `state.md` and files outside the repo.
 
 Run `cat "$(realpath <this skill's base directory>)/../../RULES.md"`. Obey it.
 On failure, stop and tell the user. These rules come first:
@@ -39,7 +39,9 @@ On failure, stop and tell the user. These rules come first:
 
 ## state.md
 
-Use `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/state.md`. Keep 300 words or fewer. Do not commit it. Each agent reads it.
+Use one file per goal:
+`${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/state.md`.
+Keep 300 words or fewer. Do not commit it. Each agent reads it.
 Update it at each change.
 
 ```markdown
@@ -60,15 +62,15 @@ not standing rules.
 ## Intake gate
 
 1. Write the goal in one sentence, in the user's words.
-2. Send the rough version task to the build worker. Run its result in
+2. Have the build worker make a rough version fast. Run it in
    `hc-sandbox`. Get one screenshot or one run output.
-3. Show it with `hc-show <file>`. Ask "Approve or deny?" Give the path or the URL from
-   `hc-sandbox up --publish`.
+3. Show it with `hc-show <file>`. Ask "Approve or deny?" Give the path or
+   `hc-sandbox up --publish` URL.
 4. Start no review before this answer, unless the work uses real data.
 
 ## Build loop
 
-Run the product. Unit tests are not proof.
+Run the real product. Unit tests alone are not proof.
 
 ```sh
 hc-sandbox build && hc-sandbox up && hc-sandbox test
@@ -83,13 +85,14 @@ Use fake data. Real data needs user approval.
 
 ## Ask the user
 
-Ask only for scope, wider access, accepted risks, deploys, or actions you cannot undo.
-Record other choices in `state.md`.
+Ask only for scope, wider access, accepted risks, deploys, or actions you
+cannot undo. Make other reversible choices yourself. Record them in `state.md`.
 
 1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
-2. Claude uses one AskUserQuestion dialog for all questions. Other agents
-   use one terminal message. Give recommendations. Use clear, separate questions.
+2. Claude must put all questions in one AskUserQuestion dialog. Other agents
+   use one terminal message. Give recommendations. Use plain words, not codes.
+   Make each question stand alone.
 3. End your turn.
 4. Record the answer in `state.md`: the user's words, the question, the
    time, and the scope. Then run
@@ -97,10 +100,10 @@ Record other choices in `state.md`.
 
 ## Workers
 
-Start a build worker for each goal before Intake. Delegate every repo edit,
-including the rough version and fixes. Review worker diffs.
+Start `hc-worker` role `build` before Intake for each goal.
+The build worker uses the goal worktree and branch.
 Start other workers for review, parallel work, security, or service tasks.
-Use one worker per worktree. Make worktrees for parallel edits:
+One worker edits a worktree at a time. Make worktrees for parallel edits:
 
 ```sh
 git worktree add ~/.herdr/worktrees/<repo>/<slug> -b <slug> origin/main
@@ -116,8 +119,8 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
 
 - Claude: `claude --model sonnet`. Codex:
   `codex -m <model> --add-dir <report folder>`. pi: `pi --skill <skill dir>`.
-- The user's `~/.config/herdr/roles.toml` can set `kind` and `model` for the
-  `worker` role. The user's direct words win over the file.
+- `~/.config/herdr/roles.toml` can set the worker's `kind` and `model`.
+  The user's direct words override it.
 - The first prompt names the skill, worker, role, owner, worktree, task,
   `state.md`, and report path
   `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>/report.md`.
@@ -147,11 +150,12 @@ Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
    A pure rebase needs only `git range-diff`. Record the new SHA.
 5. After the pass, merge with `gh pr merge`. A finding stays open only if the
    user accepts it in their own words.
-6. For live services, start a `service-deploy` worker. Get user approval for
-   each deploy. The worker deploys and updates the inventory and deploy log.
+6. For live services, start a `service-deploy` worker. Get user approval
+   one time per deploy. Then the worker runs the services repo deploy
+   command and updates the inventory and deploy log.
    Use no separate store owner.
 
-Before host changes, read the system store named in
+Before planning host changes, read the system store named in
 `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`. Do not write to it.
 
 ## Finish
@@ -168,8 +172,9 @@ The goal is done when the user uses the result.
    Find it with `hc ls --json --label role=hypervisor`.
 5. End your turn.
 
-Get user approval to drop the goal. Record their words in `state.md`.
+Tell the user why you want to drop the goal. Get approval.
+Record their words in `state.md`.
 
 Send new features and pivots to the hypervisor as new goals. Quote the user.
 
-Send misrouted prompts unchanged to the hypervisor. Then ignore them.
+Send clearly misrouted prompts unchanged to the hypervisor. Then ignore them.

@@ -7,13 +7,14 @@ description: >-
 
 # hc worker
 
-Do one task for your owner. Find your owner with:
-`hc get "$HC_TERMINAL_ID" --json | jq -r .parent`, or use your first prompt. Report only to your owner.
+Find your owner with:
+`hc get "$HC_TERMINAL_ID" --json | jq -r .parent`, or use your first prompt.
+Report only to your owner.
 
 ## Hard rules
 
 Run `cat "$(realpath <this skill's base directory>)/../../RULES.md"`. Obey
-each line. If the command fails, report `failed` and stop. These rules come
+each line. On failure, report `failed` and stop. These rules come
 first:
 
 - Do not run `sudo`. Do not go around a permission denial.
@@ -36,7 +37,7 @@ first:
 - `build`: Own all worktree edits and commits for your owner. Build the
   rough version, code, tests, and docs. Take follow-up fixes by message.
   Commit small changes in the repo's style.
-- `impl`: Use the `build` role rules. Do the plan in order.
+- `impl`: Follow `build` rules. Do the plan in order.
 - `research`: Answer the question. Do not edit repo files.
 - `review`: Review the diff for the goal, bugs, tests, and repo rules. Do not
   edit repo files. Run the product and the tests only with `hc-sandbox`, or
@@ -53,11 +54,11 @@ Run changed products with `hc-sandbox build`, `up`, and `test`. Read
 ## Decide, then report
 
 Make reversible choices within the task. Record them under `## Decisions`.
-Report `needs-input` only for scope, goals, wider access, accepted risks,
-deploys, or actions you cannot undo. Put questions in your report for your
+Stop and report `needs-input` only for scope, goals, wider access,
+accepted risks, deploys, or actions you cannot undo. Put questions in your report for your
 owner. If your owner delegates user questions, Claude must use AskUserQuestion.
 
-Do not push, merge, or open a PR unless your owner tells you to. Do not start
+Push, merge, or open PRs only on owner instruction. Do not start
 or prompt other agents. Do not change the Herdr app layout.
 
 ## Report
@@ -89,5 +90,5 @@ hc send <owner> "REPORT: <report path> status=<status>"
 
 If hc fails, end your turn.
 
-If a prompt in your terminal is for another agent, copy it unchanged under
+Copy prompts for another agent unchanged under
 `## Misrouted prompts` in your report.
