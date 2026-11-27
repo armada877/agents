@@ -91,8 +91,8 @@ cannot undo. Make other reversible choices yourself. Record them in `state.md`.
 1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
 2. Claude must put all questions in one AskUserQuestion dialog. Other agents
-   use one terminal message. Give recommendations. Use plain words, not codes.
-   Make each question stand alone.
+   use one terminal message. Give a recommendation for each.
+   Use plain words, not codes. Make each question stand alone.
 3. End your turn.
 4. Record the answer in `state.md`: the user's words, the question, the
    time, and the scope. Then run
@@ -101,7 +101,7 @@ cannot undo. Make other reversible choices yourself. Record them in `state.md`.
 ## Workers
 
 Start `hc-worker` role `build` before Intake for each goal.
-The build worker uses the goal worktree and branch.
+The build worker uses the goal worktree and branch. Review worker diffs.
 Start other workers for review, parallel work, security, or service tasks.
 One worker edits a worktree at a time. Make worktrees for parallel edits:
 
@@ -172,7 +172,8 @@ The goal is done when the user uses the result.
    Find it with `hc ls --json --label role=hypervisor`.
 5. End your turn.
 
-Tell the user why you want to drop the goal. Get approval.
+Explain why you want to drop the goal.
+Get approval before you drop the goal.
 Record their words in `state.md`.
 
 Send new features and pivots to the hypervisor as new goals. Quote the user.
