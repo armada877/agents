@@ -2,14 +2,19 @@ import json
 import subprocess
 
 
-def decision_pending(terminal):
+def label_value(terminal, name):
     try:
         result = subprocess.run(["/usr/bin/hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=2)
         if result.returncode:
-            return False
+            return None
         record = json.loads(result.stdout)
         labels = record.get("labels") if isinstance(record, dict) else None
-        label = labels.get("decision") if isinstance(labels, dict) else None
-        return isinstance(label, str) and bool(label.strip())
+        label = labels.get(name) if isinstance(labels, dict) else None
+        return label if isinstance(label, str) else None
     except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
-        return False
+        return None
+
+
+def decision_pending(terminal):
+    label = label_value(terminal, "decision")
+    return isinstance(label, str) and bool(label.strip())

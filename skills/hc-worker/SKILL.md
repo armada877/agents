@@ -8,9 +8,8 @@ description: >-
 
 # hc worker
 
-You do one task for your owner. Your owner is the agent that started you:
-`hc get "$HC_TERMINAL_ID" --json | jq -r .parent`, or the owner in your first
-prompt. You report only to your owner.
+Do one task for your owner. Find your owner with:
+`hc get "$HC_TERMINAL_ID" --json | jq -r .parent`, or use your first prompt. Report only to your owner.
 
 ## Hard rules
 
@@ -36,8 +35,10 @@ first:
 
 ## Roles
 
-- `impl`: Do the plan in order. You own the file edits in your worktree.
+- `build`: Own all worktree edits and commits for your owner. Build the
+  rough version, code, tests, and docs. Take follow-up fixes by message.
   Commit small changes in the repo's style.
+- `impl`: Use the `build` role rules. Do the plan in order.
 - `research`: Answer the question. Do not edit repo files.
 - `review`: Review the diff for the goal, bugs, tests, and repo rules. Do not
   edit repo files. Run the product and the tests only with `hc-sandbox`, or
@@ -48,17 +49,15 @@ first:
 
 ## Build and run
 
-If the work changes a product, run it with `hc-sandbox build`, `up`, and
-`test`. Read the screenshots in `.hc-sandbox/out/`. If the worktree has no `hc-sandbox.toml`, run `hc-sandbox --help`
-for the config file.
+Run changed products with `hc-sandbox build`, `up`, and `test`. Read
+`.hc-sandbox/out/` screenshots. Without `hc-sandbox.toml`, run `hc-sandbox --help`.
 
 ## Decide, then report
 
-If a choice is reversible and inside the task, make it. Write it under
-`## Decisions`. Stop and report `needs-input` only for the goal, the scope,
-wider access, an accepted risk, a deploy, or an action that you cannot undo.
-Write the questions in your report. Your owner asks the user. If your owner
-tells you to ask the user, Claude must use AskUserQuestion.
+Make reversible choices within the task. Record them under `## Decisions`.
+Report `needs-input` only for scope, goals, wider access, accepted risks,
+deploys, or actions you cannot undo. Put questions in your report for your
+owner. If your owner delegates user questions, Claude must use AskUserQuestion.
 
 Do not push, merge, or open a PR unless your owner tells you to. Do not start
 or prompt other agents. Do not change the Herdr app layout.

@@ -1,0 +1,77 @@
+#!/usr/bin/python3
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hc_label import label_value
+
+
+MAX_INPUT = 1024 * 1024
+REASON = "Do not edit files in the repo. Send this change to the build worker."
+
+
+def in_worktree(path):
+    for parent in path.parents:
+        if (parent / ".git").exists():
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            result = subprocess.run(
+                ["/usr/bin/git", "-C", str(parent), "rev-parse", "--is-inside-work-tree"],
+                capture_output=True, text=True, timeout=2, env=env,
+            )
+            if result.returncode == 0 and result.stdout.strip() == "true":
+                return True
+    return False
+
+
+def state_file(path):
+    root = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "hc"
+    return path.name == "state.md" and path.is_relative_to(root.resolve())
+
+
+def decision(payload):
+    if not isinstance(payload, dict) or payload.get("hook_event_name") != "PreToolUse":
+        return None
+    field = {"Edit": "file_path", "Write": "file_path", "NotebookEdit": "notebook_path"}.get(payload.get("tool_name"))
+    terminal = os.environ.get("HC_TERMINAL_ID")
+    if field is None or not terminal or label_value(terminal, "role") != "orchestrator":
+        return None
+    inputs = payload.get("tool_input")
+    target = inputs.get(field) if isinstance(inputs, dict) else None
+    if not isinstance(target, str) or not target:
+        return None
+    path = Path(target)
+    if not path.is_absolute():
+        path = Path(payload.get("cwd") or os.getcwd()) / path
+    lexical = Path(os.path.abspath(path))
+    resolved = path.resolve()
+    if state_file(lexical) and state_file(resolved):
+        return None
+    if in_worktree(lexical) or in_worktree(resolved):
+        return {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": REASON,
+        }}
+    return None
+
+
+def main():
+    try:
+        raw = sys.stdin.read(MAX_INPUT + 1)
+        if len(raw) > MAX_INPUT:
+            return 0
+        result = decision(json.loads(raw))
+        if result:
+            print(json.dumps(result))
+    except (OSError, ValueError, TypeError, UnicodeError, RuntimeError, RecursionError, subprocess.TimeoutExpired):
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
