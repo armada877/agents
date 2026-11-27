@@ -7,7 +7,7 @@ description: >-
 
 # hc owner
 
-Plan, run, and finish it.
+Plan, run, and finish one goal in one repo.
 Talk directly to the machine owner, "the user". Get the name with
 `git config user.name`.
 
