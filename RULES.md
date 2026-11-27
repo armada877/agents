@@ -1,6 +1,6 @@
 # Rules
-
-Every hc agent reads this file. Each line has a date, an end, the rule, and its source. Only hard safety rules are permanent. A new rule replaces a line
+Every hc agent reads this file. Each line has a date, an end, the rule, and
+its source. Only hard safety rules are permanent. A new rule replaces a line
 or ends on a date. Keep 25 lines or fewer. "Plan" is the plan that the user
 approved on 2026-11-10.
 

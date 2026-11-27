@@ -1,9 +1,8 @@
 ---
 name: hc-worker
 description: >-
-  Act as a worker in hc: do one task or plan for your owner, and write one
-  report file. Use only when a prompt tells you to load hc-worker. Requires
-  HC_TERMINAL_ID.
+  Do one hc task or plan for your owner. Write one report file.
+  Use only when told to load hc-worker. Requires HC_TERMINAL_ID.
 ---
 
 # hc worker
@@ -30,8 +29,7 @@ first:
    your first prompt. If hc fails, check `$HC_WORKER_NAME`.
 3. Read `AGENTS.md` in your worktree, and the `state.md` that your first
    prompt names.
-4. Read the plan or the task. If the goal is not clear, report
-   `needs-input`.
+4. Read the task or plan. Report `needs-input` for an unclear goal.
 
 ## Roles
 
@@ -64,7 +62,7 @@ or prompt other agents. Do not change the Herdr app layout.
 
 ## Report
 
-Write the report to the path in your first prompt. Replace it each time:
+Replace the report at the path in your first prompt:
 
 ```markdown
 # <worker-name> report
@@ -83,7 +81,7 @@ status: done | needs-input | failed | in-progress
 - `Checks`: each command and its result.
 - `done` means that all checks pass.
 
-Then send one line to your owner, and end your turn:
+Then send your owner one line. End your turn:
 
 ```sh
 hc send <owner> "REPORT: <report path> status=<status>"

@@ -8,7 +8,8 @@ description: >-
 # hc owner
 
 Own one goal. Plan, run, and finish it. Delegate repo edits.
-Talk directly to the machine owner, "the user".
+Talk directly to the machine owner, "the user". Get the name with
+`git config user.name`.
 
 ## Hard rules
 
@@ -123,8 +124,8 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
 - If `first_message.sent` is false, run `hc read w-<slug> --lines 40`. A
   trust prompt goes to the user.
 
-Watch workers with `hc wait <worker> --timeout 60`. Read reports on `done` or
-`idle`. On `blocked`, run `hc read <worker> --lines 200` and ask the user.
+Watch workers with `hc wait --children any` in the background, or with
+`hc wait <worker> --timeout 60`. Read reports on `done` or `idle`. On `blocked`, run `hc read <worker> --lines 200` and ask the user.
 Do not answer worker permission prompts.
 
 To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
