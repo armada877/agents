@@ -125,7 +125,8 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
   trust prompt goes to the user.
 
 Watch workers with `hc wait --children any` in the background, or with
-`hc wait <worker> --timeout 60`. Read reports on `done` or `idle`. On `blocked`, run `hc read <worker> --lines 200` and ask the user.
+`hc wait <worker> --timeout 60`. Read reports on `done` or `idle`.
+On `blocked`, run `hc read <worker> --lines 200` and ask the user.
 Do not answer worker permission prompts.
 
 To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
