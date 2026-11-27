@@ -42,7 +42,12 @@ folder into `~/.claude/skills`, `~/.agents/skills`, and `~/.pi/agent/skills`.
 Start one owner for each goal. A new feature or a pivot is a new goal.
 
 1. Choose the name `o-<topic>`, lowercase, 32 characters or fewer.
-2. Make the worktree:
+2. Choose the project that the goal serves. The project is the product.
+   The default is the repo folder name. Use lowercase, 30 characters or fewer.
+   Work in another repo joins the project for that product.
+   For example, postbox deploy work in a services repo joins postbox.
+   Run `herdr-app ls`. Reuse a live space id when one matches the project.
+3. Make the worktree:
 
    ```sh
    git -C <repo> fetch origin
@@ -54,28 +59,39 @@ Start one owner for each goal. A new feature or a pivot is a new goal.
    ```sh
    git -C <repo> worktree add ~/.herdr/worktrees/<repo>/<topic> -b <topic> main
    ```
-3. Read the `orchestrator` entry of `~/.config/herdr/roles.toml` for `kind`
+4. Read the `orchestrator` entry of `~/.config/herdr/roles.toml` for `kind`
    and `model`. The default is `claude` with no model flag.
-4. Start the owner. It must outlive you:
+5. Start the owner. It must outlive you:
 
    ```sh
    hc run --bg --name o-<topic> --cwd <worktree> --outlive-parent \
      --label role=orchestrator --label rank=3 \
-     --label herdr.space=o-<topic> --label herdr.tab=o-<topic>-main \
+     --label project=<project> --label herdr.space=p-<project> --label herdr.tab=o-<topic> \
      -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    For pi, add `--skill <skill dir>` after `pi`. Do not pass a permission
    mode.
-5. Name the tab and the space:
-   `herdr-app do tab.rename --id o-<topic>-main --name o-<topic>` and
-   `herdr-app do space.rename --id o-<topic> --name o-<topic>`. Retry one
-   time after one second if it reports `no tab`.
-6. If `first_message.sent` is false, run `hc read o-<topic> --lines 40`. Show
+6. Run `herdr-app do tab.rename --id o-<topic> --name o-<topic>`.
+   Retry one time after one second if it reports `no tab`.
+   Run `herdr-app do space.rename --id p-<project> --name <project>`.
+   Then run `herdr-app do space.move --id h --index 1`.
+   If space `a` is live, run `herdr-app do space.move --id a --index 2`.
+7. If `first_message.sent` is false, run `hc read o-<topic> --lines 40`. Show
    a trust prompt to the user.
 
 The first prompt says: "Load the hc-orchestrator skill. You are o-<topic>.
 Repo: <repo>. Worktree: <path>. Goal, the user's words: "<exact words>"."
+
+## Spaces
+
+`herdr.space=<id of a live space>` adds the terminal to that space. A new id makes a new space at the end.
+`herdr.tab=<new id>` makes a new tab after the active tab.
+A label set after start does not move a terminal. `tab.move` moves a tab only inside its space.
+A live owner joins its project space only when it starts again.
+A space closes when its last terminal ends.
+`h` and the assistant keep their own spaces, `h` and `a`, first and second.
+[test: zz-space-a..d dummy terminals, 2026-11-27]
 
 ## Watch
 
