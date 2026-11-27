@@ -55,6 +55,12 @@ with `cat "$(realpath <this skill's base directory>)/../system-store.md"`.
 7. After approval, write the service entry and port in the store inventory.
    Commit under the store lock. Every deploy needs this entry first.
    Run `bin/deploy <service> <commit>` in the services repo.
+   `bin/deploy` refuses Postbox. For Postbox, run
+   `postbox-v3/deploy-app <commit>` in the services repo. Its rollback is
+   `postbox-v3/rollback-app <commit>`. Then write the inventory entry and
+   the `deploys.log` line yourself, under the store lock.
+   For another refused service, read its section in the services repo
+   `AGENTS.md`. If it names no command, report `needs-input`.
    The user runs required root commands. The deploy command installs,
    restarts, checks, and rolls back on failure. Report the result.
 8. Write `inventory/services.toml` and `deploys.log` through the deploy
