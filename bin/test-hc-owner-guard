@@ -149,10 +149,91 @@ class GuardTests(unittest.TestCase):
             self.assertIsNone(self.invoke("file", tool_input=inputs))
 
     def test_invalid_input(self):
-        for raw in ["{", "[]", "null", "x" * (guard.MAX_INPUT + 1)]:
+        for raw in ["{", "[]", "null"]:
             with patch.object(sys, "stdin", io.StringIO(raw)), patch.object(sys, "stdout", io.StringIO()) as output:
                 self.assertEqual(guard.main(), 0)
                 self.assertEqual(output.getvalue(), "")
+
+    def test_large_valid_input(self):
+        for tool, field in [("Write", "file_path"),
+                            ("Edit", "file_path"),
+                            ("NotebookEdit", "notebook_path")]:
+            inputs = {"content": "x" * (2 * 1024 * 1024), field: "file"}
+            with self.subTest(tool=tool):
+                self.denied(self.invoke("file", tool=tool, tool_input=inputs))
+                self.assertIsNone(self.invoke(
+                    "file", tool=tool, tool_input=inputs,
+                    record={"labels": {"role": "worker"}},
+                ))
+                inputs[field] = str(self.root / "outside")
+                self.assertIsNone(self.invoke(
+                    "file", tool=tool, tool_input=inputs,
+                ))
+
+    def test_symlinked_state_root(self):
+        link = self.root / "state-link"
+        link.symlink_to(self.state, target_is_directory=True)
+        with patch.dict(os.environ, {"XDG_STATE_HOME": str(link)}):
+            self.assertIsNone(self.invoke(link / "hc/goal/state.md"))
+            self.assertIsNone(self.invoke(self.state / "hc/goal/state.md"))
+            self.denied(self.invoke(link / "hc/goal/notes.md"))
+
+    def test_symlinked_home(self):
+        link = self.root / "home-link"
+        link.symlink_to(self.repo, target_is_directory=True)
+        with patch.dict(os.environ, {"HOME": str(link), "XDG_STATE_HOME": ""}):
+            self.assertIsNone(self.invoke(
+                link / ".local/state/hc/goal/state.md",
+            ))
+            self.denied(self.invoke(link / ".local/state/hc/goal/notes.md"))
+
+    def test_git_failure(self):
+        (self.repo / ".git").rename(self.repo / "git-backup")
+        (self.repo / ".git").write_text("gitdir: missing\n")
+        self.assertIsNone(self.invoke("file"))
+
+    def run_installed(self, installed):
+        probe = """
+import json
+import runpy
+import subprocess
+import sys
+from unittest.mock import patch
+
+actual_run = subprocess.run
+
+def fake_hc(command, **kwargs):
+    if command[0] == "/usr/bin/hc":
+        record = {"labels": {"role": "orchestrator"}}
+        return subprocess.CompletedProcess(command, 0, json.dumps(record), "")
+    return actual_run(command, **kwargs)
+
+with patch.object(subprocess, "run", side_effect=fake_hc):
+    runpy.run_path(sys.argv[1], run_name="__main__")
+"""
+        payload = {
+            "hook_event_name": "PreToolUse", "tool_name": "Write",
+            "tool_input": {"file_path": str(self.repo / "file")},
+        }
+        return run_process(
+            [sys.executable, "-I", "-c", probe, str(installed)],
+            input=json.dumps(payload), capture_output=True, text=True,
+        )
+
+    def test_missing_label_module(self):
+        installed = self.root / "hc-owner-guard"
+        installed.write_bytes(script.read_bytes())
+        result = self.run_installed(installed)
+        self.assertEqual(
+            (result.returncode, result.stdout, result.stderr), (0, "", ""),
+        )
+
+    def test_symlinked_install(self):
+        installed = self.root / "hc-owner-guard"
+        installed.symlink_to(script)
+        result = self.run_installed(installed)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.denied(json.loads(result.stdout))
 
     def test_executable(self):
         result = run_process([str(script)], input="{}", capture_output=True, text=True)

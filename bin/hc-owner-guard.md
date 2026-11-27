@@ -22,7 +22,8 @@ from that command. New files and linked worktrees have the same protection.
 
 The guard permits `state.md` under
 `${XDG_STATE_HOME:-$HOME/.local/state}/hc`, including its subfolders.
-Both paths must meet this exception when a symlink is present.
+Both paths must meet this exception when a symlink is present. Each path
+can match the lexical or resolved state root.
 It permits other paths outside worktrees and tools outside the matcher.
 
 A denied call returns JSON with `hookSpecificOutput`, `hookEventName` set to
@@ -32,7 +33,9 @@ Allowed calls produce no output and exit zero.
 
 Missing labels, failed lookups, invalid input, and path errors produce no
 output. This hook permits calls when it cannot check them. Each subprocess
-has a two-second timeout. The input limit is 1 MiB of text.
+has a two-second timeout. The program reads the complete JSON input. Large
+content fields do not skip the role and path checks. Memory use grows with
+the input size. A missing label module produces no output and exits zero.
 
 ## Settings
 
