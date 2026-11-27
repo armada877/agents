@@ -173,7 +173,7 @@ The goal is done when the user uses the result.
 5. End your turn.
 
 Explain why you want to drop the goal.
-Get approval before you drop the goal.
+Get user approval before you drop the goal.
 Record their words in `state.md`.
 
 Send new features and pivots to the hypervisor as new goals. Quote the user.
