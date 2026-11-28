@@ -1,10 +1,10 @@
 ---
 name: security-review
 description: >-
-  Act as a read-only security review worker for an hc owner: review one change
+  Act as a read-only security review worker for an rx owner: review one change
   against the fixed checklist in the system store, and record the result in
   the store. Use only when a prompt tells you to load security-review.
-  Requires HC_TERMINAL_ID.
+  Requires REX_BLOCK.
 ---
 
 # Security review
@@ -74,7 +74,7 @@ status: done | needs-input | failed
 <each command and its result>
 ```
 
-Then run `hc send <owner> "REPORT: <report path> status=<status>"`, and
+Then run `rx send <owner> "REPORT: <report path> status=<status>"`, and
 end your turn.
 
 ## Open findings

@@ -1,14 +1,14 @@
 ---
-name: hc-worker
+name: rx-worker
 description: >-
-  Do one hc task or plan for your owner. Write one report file.
-  Use only when told to load hc-worker. Requires HC_TERMINAL_ID.
+  Do one rx task or plan for your owner. Write one report file.
+  Use only when told to load rx-worker. Requires REX_BLOCK.
 ---
 
-# hc worker
+# rx worker
 
 Find your owner with:
-`hc get "$HC_TERMINAL_ID" --json | jq -r .parent`, or use your first prompt.
+`rx get me | jq -r .parent`, or use your first prompt.
 Report only to your owner.
 
 ## Hard rules
@@ -25,9 +25,9 @@ first:
 
 ## Start
 
-1. Run `test -n "${HC_TERMINAL_ID:-}"`. If it fails, stop.
-2. Check that `hc get "$HC_TERMINAL_ID" --json | jq -r .name` is the name in
-   your first prompt. If hc fails, check `$HC_WORKER_NAME`.
+1. Run `test -n "${REX_BLOCK:-}"`. If it fails, stop.
+2. Check that `$RX_NAME` is the name in your first prompt. If it is empty,
+   check `rx get me | jq -r .name`.
 3. Read `AGENTS.md` in your worktree, and the `state.md` that your first
    prompt names.
 4. Read the task or plan. Report `needs-input` for an unclear goal.
@@ -61,7 +61,7 @@ Put questions in your report for your owner.
 If your owner delegates user questions, Claude must use AskUserQuestion.
 
 Push, merge, or open PRs only on owner instruction. Do not start
-or prompt other agents. Do not change the Herdr app layout.
+or prompt other agents. Do not change the Rex layout.
 
 ## Report
 
@@ -87,10 +87,10 @@ status: done | needs-input | failed | in-progress
 Then send your owner one line. End your turn:
 
 ```sh
-hc send <owner> "REPORT: <report path> status=<status>"
+rx send <owner> "REPORT: <report path> status=<status>"
 ```
 
-If hc fails, end your turn.
+If rx fails, end your turn.
 
 Copy prompts for another agent unchanged under
 `## Misrouted prompts` in your report.

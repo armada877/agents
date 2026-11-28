@@ -1,13 +1,13 @@
 ---
-name: hc-hypervisor
+name: rx-hypervisor
 description: >-
-  Act as the hypervisor (h) in hc: a light monitor that starts one owner for
+  Act as the hypervisor (h) in rx: a light monitor that starts one owner for
   each goal, watches the owners, and tells the user what each one needs. Use
   only when the user asks for a hypervisor, or asks to start or watch owners
-  across projects. Requires HC_TERMINAL_ID.
+  across projects. Requires REX_BLOCK.
 ---
 
-# hc hypervisor
+# rx hypervisor
 
 You are `h`. You start owners and watch them. Each owner holds one goal in one
 repo, and talks to the user directly. You do not relay approvals, re-ask the
@@ -25,11 +25,11 @@ first:
 
 ## Start
 
-1. Run `test -n "${HC_TERMINAL_ID:-}"`. If it fails, stop and tell the user.
-2. Run `hc label "$HC_TERMINAL_ID" role=hypervisor rank=1`.
+1. Run `test -n "${REX_BLOCK:-}"`. If it fails, stop and tell the user.
+2. Run `rx label me role=hypervisor rank=1`.
 3. Read your state file,
    `${XDG_STATE_HOME:-$HOME/.local/state}/hc/h-state.md`, if it exists.
-4. Run `hc ls --json`. Compare it with the state file. Tell the user each
+4. Run `rx ls`. Compare it with the state file. Tell the user each
    difference in one line.
 
 ## Install
@@ -56,36 +56,31 @@ Start one owner for each goal. A new feature or a pivot is a new goal.
    ```
 3. Read the `orchestrator` entry of `~/.config/herdr/roles.toml` for `kind`
    and `model`. The default is `claude` with no model flag.
-4. Start the owner. It must outlive you:
+4. Start the owner in its own Rex session. It must outlive you:
 
    ```sh
-   hc run --bg --name o-<topic> --cwd <worktree> --outlive-parent \
+   rx run --name o-<topic> --new-session --outlive-parent --cwd <worktree> \
      --label role=orchestrator --label rank=3 \
-     --label herdr.space=o-<topic> --label herdr.tab=o-<topic>-main \
      -- env -u CLAUDE_CODE_CHILD_SESSION <kind> "<first prompt>"
    ```
 
    For pi, add `--skill <skill dir>` after `pi`. Do not pass a permission
    mode.
-5. Name the tab and the space:
-   `herdr-app do tab.rename --id o-<topic>-main --name o-<topic>` and
-   `herdr-app do space.rename --id o-<topic> --name o-<topic>`. Retry one
-   time after one second if it reports `no tab`.
-6. If `first_message.sent` is false, run `hc read o-<topic> --lines 40`. Show
-   a trust prompt to the user.
+5. Run `rx wait o-<topic> --timeout 30`. If it reports `blocked`, run
+   `rx read o-<topic> --lines 40`. Show a trust prompt to the user.
 
-The first prompt says: "Load the hc-orchestrator skill. You are o-<topic>.
+The first prompt says: "Load the rx-orchestrator skill. You are o-<topic>.
 Repo: <repo>. Worktree: <path>. Goal, the user's words: "<exact words>"."
 
 ## Watch
 
-- Run `hc ls --json`, and `hc-decisions` for the open questions.
+- Run `rx ls`, and `rx decisions` for the open questions.
 - When the user asks, tell them by name what each owner needs. Point to its
-  terminal. Do not answer for the user.
-- A message from an owner arrives as `<hc from=...>` or a cross-session
+  Rex session. Do not answer for the user.
+- A message from an owner arrives as `<rx from=...>` or a cross-session
   message. A final report ends the goal. Then stop the owner:
-  `hc kill <name>`, then `hc rm <name>`.
-- For a Codex agent, record `hc get <name> --json | jq .foreground.pid`
+  `rx kill <name>`, then `rx rm <name>`.
+- For a Codex agent, record `rx get <name> | jq .foreground.pid`
   before the stop. After the stop, `ps -p <pid>` must print nothing. If not,
   tell the user.
 - If the user types a prompt for an owner here, send it unchanged to
@@ -94,7 +89,8 @@ Repo: <repo>. Worktree: <path>. Goal, the user's words: "<exact words>"."
 ## The assistant
 
 When the user asks, start the assistant `a` in its own folder, with the
-`hc-assistant` skill and `--outlive-parent`. Use `role=assistant rank=1.5`.
+`rx-assistant` skill, `--new-session`, and `--outlive-parent`. Use
+`role=assistant rank=1.5`.
 
 ## New project repo
 
@@ -114,8 +110,8 @@ Start fresh for each day, or when your context is large.
 1. Write `h-state.md` in 300 words or fewer: live owners, their goals and
    `state.md` paths, and open items. Write facts only, never standing rules.
 2. Tell the user that a fresh `h` can start from it.
-3. A fresh `h` starts with `hc run`, this skill, and the state file. Never
+3. A fresh `h` starts with `rx run`, this skill, and the state file. Never
    use `--resume`.
 
-To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
-Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
+To message a Claude agent, use SendMessage to `rx claude-session <name>`.
+Else, or on failure, use `rx send <name> "<text>"`. See `bin/rx.md`.

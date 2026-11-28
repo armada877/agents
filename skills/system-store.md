@@ -46,4 +46,4 @@ is not built yet. The repo of the host services owns it.
   `status: check`. Each next line is one item that differs.
 - It commits under the lock.
 - On `status: check`, it sends one line with the file path to the
-  hypervisor with `hc-send`. The user decides the next step.
+  hypervisor with `rx send`. The user decides the next step.

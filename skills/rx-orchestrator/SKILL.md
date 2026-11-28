@@ -1,11 +1,11 @@
 ---
-name: hc-orchestrator
+name: rx-orchestrator
 description: >-
   Own one repo goal.
-  Use only when told to load hc-orchestrator. Requires HC_TERMINAL_ID.
+  Use only when told to load rx-orchestrator. Requires REX_BLOCK.
 ---
 
-# hc owner
+# rx owner
 
 Plan, run, and finish one goal in one repo.
 Talk directly to the machine owner, "the user". Get the name with
@@ -28,12 +28,12 @@ On failure, stop and tell the user. These rules come first:
 
 ## Start
 
-1. Run `test -n "${HC_TERMINAL_ID:-}"`. If it fails, stop and tell the user.
-2. Run `hc label "$HC_TERMINAL_ID" role=orchestrator rank=3`.
+1. Run `test -n "${REX_BLOCK:-}"`. If it fails, stop and tell the user.
+2. Run `rx label me role=orchestrator rank=3`.
 3. Read `AGENTS.md` in your worktree.
 4. Make or read `state.md` (see below). Run
-   `hc label "$HC_TERMINAL_ID" state=<absolute path of state.md>`.
-5. If `state.md` exists, compare it with `hc ls --json` and
+   `rx label me state=<absolute path of state.md>`.
+5. If `state.md` exists, compare it with `rx ls` and
    `git worktree list`. Tell the user each difference.
 
 ## state.md
@@ -63,7 +63,7 @@ not standing rules.
 1. Write the goal in one sentence, in the user's words.
 2. Have the build worker make a rough version fast. Run it in
    `hc-sandbox`. Get one screenshot or one run output.
-3. Show it with `hc-show <file>`. Ask "Approve or deny?" Give the path or
+3. Show it with `rx-show <file>`. Ask "Approve or deny?" Give the path or
    `hc-sandbox up --publish` URL.
 4. Start no review before this answer, unless the work uses real data.
 
@@ -86,7 +86,7 @@ worker. Repeat after each fix. Run `hc-sandbox --help` for config.
 Ask only for scope, wider access, accepted risks, deploys, or actions you
 cannot undo.
 
-1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
+1. Run `rx label me decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
 2. Claude must put all questions in one AskUserQuestion dialog. Other agents
    use one terminal message. Give a recommendation for each.
@@ -94,11 +94,11 @@ cannot undo.
 3. End your turn.
 4. Record the answer in `state.md`: the user's words, the question, the
    time, and the scope. Then run
-   `hc label "$HC_TERMINAL_ID" decision= decision-kind=`.
+   `rx label me decision= decision-kind=`.
 
 ## Workers
 
-Start `hc-worker` role `build` before Intake for each goal.
+Start `rx-worker` role `build` before Intake for each goal.
 The build worker uses the goal worktree and branch. Review worker diffs.
 Start other workers for review, parallel work, security, or service tasks.
 One worker edits a worktree at a time. Make worktrees for parallel edits:
@@ -107,12 +107,11 @@ One worker edits a worktree at a time. Make worktrees for parallel edits:
 git worktree add ~/.herdr/worktrees/<repo>/<slug> -b <slug> origin/main
 ```
 
-Start each worker as your child:
+Start each worker as your child. It opens as a tab in your Rex session:
 
 ```sh
-hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 \
-  -- env -u CLAUDE_CODE_CHILD_SESSION HC_WORKER_NAME=w-<slug> \
-  <program> <model flag> "<first prompt>"
+rx run --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 \
+  -- env -u CLAUDE_CODE_CHILD_SESSION <program> <model flag> "<first prompt>"
 ```
 
 - Claude: `claude --model sonnet`. Codex:
@@ -122,15 +121,16 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
 - The first prompt names the skill, worker, role, owner, worktree, task,
   `state.md`, and report path
   `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>/report.md`.
-- If `first_message.sent` is false, run `hc read w-<slug> --lines 40`. A
-  trust prompt goes to the user.
+- Run `rx wait w-<slug> --timeout 30`. If it reports `blocked`, run
+  `rx read w-<slug> --lines 40`. A trust prompt goes to the user.
 
-Watch workers with `hc wait --children any` in the background, or with
-`hc wait <worker> --timeout 60`. Read reports on `done` or `idle`.
-On `blocked`, run `hc read <worker> --lines 200` and ask the user.
+Watch workers with `rx wait --children any` in the background, or with
+`rx wait <worker> --timeout 60`. Read reports on `done` or `idle`.
+On `blocked`, run `rx read <worker> --lines 200` and ask the user.
+The rx watcher also notes a blocked or exited worker.
 
-To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
-Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
+To message a Claude agent, use SendMessage to `rx claude-session <name>`.
+Else, or on failure, use `rx send <name> "<text>"`. See `bin/rx.md`.
 
 ## Review and merge
 
@@ -139,7 +139,7 @@ Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
 2. Start one read-only reviewer from the other model family for the final
    commit. Give the repo, base, head SHA, goal, and `state.md`.
    Use `security-review` for live services to check code and security.
-   Otherwise use `hc-worker`, role `review`.
+   Otherwise use `rx-worker`, role `review`.
 3. Do not review drafts or deploy plans. Add no new check unless the
    review finds a high severity problem.
 4. Send each finding to the build worker for a fix.
@@ -159,14 +159,14 @@ Before planning host changes, read the system store named in
 
 The goal is done when the user uses the result.
 
-1. Stop each worker: `hc kill <worker>`, then `hc rm <worker>`. For Codex,
-   record `hc get <worker> --json | jq .foreground.pid` first. After the
+1. Stop each worker: `rx kill <worker>`, then `rx rm <worker>`. For Codex,
+   record `rx get <worker> | jq .foreground.pid` first. After the
    stop, `ps -p <pid>` must print nothing. If not, tell the user.
 2. Remove the worktrees that you made.
 3. Write the final state in `state.md`.
 4. Send the hypervisor one line:
    `<your name> finished: <goal>; <PR or merge>; open: <items>`.
-   Find it with `hc ls --json --label role=hypervisor`.
+   Find it with `rx ls --label role=hypervisor`.
 5. End your turn.
 
 Explain why you want to drop the goal.

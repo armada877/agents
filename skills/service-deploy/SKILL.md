@@ -1,8 +1,8 @@
 ---
 name: service-deploy
 description: >-
-  Deploy a reviewed release in place for an hc owner. Update the store.
-  Use only when a prompt tells you to load service-deploy. Requires HC_TERMINAL_ID.
+  Deploy a reviewed release in place for an rx owner. Update the store.
+  Use only when a prompt tells you to load service-deploy. Requires REX_BLOCK.
 ---
 
 # Service deploy
@@ -83,7 +83,7 @@ status: done | needs-input | failed
 <each command and its result>
 ```
 
-Then run `hc send <owner> "REPORT: <report path> status=<status>"`, and
+Then run `rx send <owner> "REPORT: <report path> status=<status>"`, and
 end your turn.
 
 Approval covers the exact commit, digest, and files. Changes need new approval.
