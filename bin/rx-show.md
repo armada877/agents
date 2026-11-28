@@ -29,9 +29,11 @@ The helper reads its terminal cell and pixel dimensions with `TIOCGWINSZ`. It ig
 It sends no size key when the image fits at its natural size.
 When pixel dimensions are absent, it uses an 8-pixel cell width estimate for width limits only.
 It never uses an estimated height limit.
-`C=1` keeps the cursor in place. The helper sends no trailing newline.
+`C=1` keeps the cursor in place. Each draw hides the cursor, clears the pane, and moves home.
+The helper sends no trailing newline.
 The helper draws once at startup and stays alive inside the terminal.
-On `SIGWINCH`, it deletes the image, clears the pane, and draws with the new size.
+On `SIGWINCH`, it deletes the image and its stored data with `a=d,d=A`, then draws with the new size.
+Ctrl-C stops the helper and shows the cursor again.
 When output goes to a pipe, the helper draws once and exits.
 The helper removes the temporary PNG after it reads the bytes.
 

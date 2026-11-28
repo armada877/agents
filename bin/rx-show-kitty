@@ -44,6 +44,7 @@ def image_size_key(data, pane):
 
 def draw(data, payload):
     size_key = image_size_key(data, pane_size())
+    sys.stdout.buffer.write(b"\x1b[?25l\x1b[2J\x1b[H")
     for start in range(0, len(payload), 4096):
         part = payload[start:start + 4096]
         more = int(start + 4096 < len(payload))
@@ -61,14 +62,18 @@ def show(path, remove=False):
         if remove:
             path.unlink(missing_ok=True)
     payload = base64.standard_b64encode(data)
-    resize_signals = {signal.SIGWINCH}
-    signal.pthread_sigmask(signal.SIG_BLOCK, resize_signals)
+    signal.signal(signal.SIGWINCH, lambda *_: None)
+    wait_signals = {signal.SIGWINCH, signal.SIGINT}
+    signal.pthread_sigmask(signal.SIG_BLOCK, wait_signals)
     draw(data, payload)
     if not sys.stdout.isatty():
         return
     while True:
-        signal.sigwait(resize_signals)
-        sys.stdout.buffer.write(b"\x1b_Ga=d\x1b\\\x1b[2J\x1b[H")
+        if signal.sigwait(wait_signals) == signal.SIGINT:
+            sys.stdout.buffer.write(b"\x1b[?25h")
+            sys.stdout.flush()
+            return
+        sys.stdout.buffer.write(b"\x1b_Ga=d,d=A\x1b\\")
         draw(data, payload)
 
 

@@ -259,7 +259,9 @@ class RxShowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(result.stdout.endswith(b"\n"))
-        packets = result.stdout.split(b"\x1b\\")[:-1]
+        draw_prefix = b"\x1b[?25l\x1b[2J\x1b[H"
+        self.assertTrue(result.stdout.startswith(draw_prefix))
+        packets = result.stdout[len(draw_prefix):].split(b"\x1b\\")[:-1]
         encoded = []
         for index, packet in enumerate(packets):
             header, part = packet.split(b";", 1)
@@ -316,16 +318,18 @@ class RxShowTests(unittest.TestCase):
 
                 try:
                     first = read_draw()
-                    self.assertTrue(first.startswith(b"\x1b_Gf=100,a=T,C=1," + initial_key + b"m="))
+                    self.assertTrue(first.startswith(b"\x1b[?25l\x1b[2J\x1b[H\x1b_Gf=100,a=T,C=1," + initial_key + b"m="))
                     self.assertIsNone(process.poll())
                     self.assertFalse(self.image.exists())
                     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 5, 5, 50, 50))
                     second = read_draw()
-                    prefix = b"\x1b_Ga=d\x1b\\\x1b[2J\x1b[H\x1b_Gf=100,a=T,C=1,"
+                    prefix = b"\x1b_Ga=d,d=A\x1b\\\x1b[?25l\x1b[2J\x1b[H\x1b_Gf=100,a=T,C=1,"
                     resized_key = b"r=5," if height > width else b"c=5,"
                     self.assertTrue(second.startswith(prefix + resized_key + b"m="))
                     self.assertNotIn(b"\n", second)
                     self.assertIsNone(process.poll())
+                    os.write(master, b"\x03")
+                    self.assertEqual(process.wait(timeout=5), 0)
                 finally:
                     process.terminate()
                     process.wait(timeout=5)
