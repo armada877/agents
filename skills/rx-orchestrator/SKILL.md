@@ -129,7 +129,7 @@ Watch workers with `rx wait --children any` in the background, or with
 On `blocked`, run `rx read <worker> --lines 200` and ask the user.
 The rx watcher also notes a blocked or exited worker.
 
-To message a Claude agent, use SendMessage to `rx claude-session <name>`.
+To message the hypervisor or a Claude agent, use SendMessage to `rx claude-session <name>`.
 Else, or on failure, use `rx send <name> "<text>"`. See `bin/rx.md`.
 
 ## Review and merge
@@ -155,13 +155,6 @@ Else, or on failure, use `rx send <name> "<text>"`. See `bin/rx.md`.
 Before planning host changes, read the system store named in
 `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`. Do not write to it.
 
-## Report to the hypervisor
-
-Find the hypervisor with `rx ls --label role=hypervisor`.
-Use SendMessage to the name from `rx claude-session <hypervisor>`.
-Use `rx send <hypervisor> "<text>"` only if SendMessage fails.
-`rx send` blocks you while the hypervisor is busy. `[test: owner to h, 2026-11-28]`
-
 ## Finish
 
 The goal is done when the user uses the result.
@@ -171,15 +164,14 @@ The goal is done when the user uses the result.
    stop, `ps -p <pid>` must print nothing. If not, tell the user.
 2. Remove the worktrees that you made.
 3. Write the final state in `state.md`.
-4. Send one line to the hypervisor (see Report to the hypervisor):
+4. Send the hypervisor one line:
    `<your name> finished: <goal>; <PR or merge>; open: <items>`.
+   Find it with `rx ls --label role=hypervisor`.
 5. End your turn.
 
 Explain why you want to drop the goal.
 Get user approval before you drop the goal.
 
-Send new features and pivots as new goals to the hypervisor (see Report to the hypervisor).
-Quote the user.
+Send new features and pivots to the hypervisor as new goals. Quote the user.
 
-Send clearly misrouted prompts unchanged to the hypervisor (see Report to the hypervisor).
-Then ignore the prompts.
+Send clearly misrouted prompts unchanged to the hypervisor. Then ignore them.
