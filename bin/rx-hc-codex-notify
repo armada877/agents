@@ -1,0 +1,34 @@
+#!/usr/bin/python3
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main():
+    programs = [str(Path(__file__).resolve().with_name("rx-codex-notify"))]
+    legacy = shutil.which("hc-codex-notify")
+    if not legacy:
+        fallback = Path.home() / ".local/bin/hc-codex-notify"
+        if fallback.is_file() and os.access(fallback, os.X_OK):
+            legacy = str(fallback)
+    if legacy:
+        programs.append(legacy)
+    children = []
+    for program in programs:
+        try:
+            children.append(subprocess.Popen([program, *sys.argv[1:]]))
+        except OSError:
+            pass
+    for child in children:
+        try:
+            child.wait()
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

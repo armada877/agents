@@ -27,14 +27,81 @@ is_image() {
 viewer() {
   if is_markdown; then
     echo glow -t
-  elif is_image; then
-    echo chafa
   else
     echo less
   fi
 }
 
+open_image() (
+  umask 077
+  local runtime="${XDG_RUNTIME_DIR:-/tmp}/rx-show"
+  local converter image_file="" state_file old_block new_block lock_key close_error format
+  local label="$file_name preview"
+  local helper="$(dirname "$(realpath "$0")")/rx-show-kitty"
+  local opened=tab
+  trap '[[ -z $image_file ]] || rm -f -- "$image_file"' EXIT
+  if ! converter="$(command -v magick || command -v convert)"; then
+    echo "rx-show: no image converter: install ImageMagick" >&2
+    return 1
+  fi
+  if ! mkdir -p -m 700 -- "$runtime" 2>/dev/null || [[ -L $runtime || ! -O $runtime ]]; then
+    echo "rx-show: could not use the preview directory" >&2
+    return 1
+  fi
+  if ! image_file="$(mktemp "$runtime/image.XXXXXXXX.png")"; then
+    echo "rx-show: could not prepare the image" >&2
+    return 1
+  fi
+  format="${source_file##*.}"
+  format="${format,,}"
+  [[ $format != jpg ]] || format=jpeg
+  if ! "$converter" "$format:-[0]" -auto-orient png:- < "$source_file" > "$image_file" 2>/dev/null || [[ ! -s $image_file ]]; then
+    echo "rx-show: could not convert the image" >&2
+    return 1
+  fi
+  if [[ -n ${REX_BLOCK:-} ]]; then
+    lock_key="$(printf '%s' "$REX_BLOCK" | sha256sum)"
+    state_file="$runtime/${lock_key%% *}.block"
+    exec 9>"$state_file.lock"
+    flock 9
+    if [[ -r $state_file ]]; then
+      read -r old_block < "$state_file" || old_block=""
+      if [[ -n $old_block && $old_block != "$REX_BLOCK" ]]; then
+        if ! close_error="$(rex block close "$old_block" 2>&1)"; then
+          if [[ $close_error != *"not found"* ]]; then
+            echo "rx-show: could not close the earlier preview" >&2
+            return 1
+          fi
+        fi
+      fi
+      rm -f -- "$state_file"
+    fi
+    if new_block="$(rex split -b "$REX_BLOCK" --split=right --ratio 60 --focus=false --keep-open --label "$label" -- "$helper" --remove "$image_file" 2>/dev/null)"; then
+      opened=split
+    else
+      new_block=""
+    fi
+  else
+    new_block=""
+  fi
+  if [[ -z $new_block ]]; then
+    if ! new_block="$(rex run --focus=false --keep-open --label "$label" -- "$helper" --remove "$image_file" 2>/dev/null)"; then
+      echo "rx-show: could not open an image preview" >&2
+      return 1
+    fi
+  fi
+  image_file=""
+  if [[ -n ${state_file:-} ]]; then
+    printf '%s\n' "$new_block" > "$state_file"
+  fi
+  echo "rx-show: opened a $opened: $label ($new_block)" >&2
+)
+
 open_window() {
+  if is_image; then
+    open_image
+    return $?
+  fi
   local label="rx-show · $file_name"
   local -a view
   read -ra view <<<"$(viewer)"
@@ -67,5 +134,7 @@ send_push() {
   fi
 }
 
-[[ ${RX_SHOW_WINDOW:-1} == 0 ]] || open_window
+if [[ ${RX_SHOW_WINDOW:-1} != 0 ]] && ! open_window; then
+  exit 0
+fi
 [[ ${RX_SHOW_PUSH:-1} == 0 ]] || send_push

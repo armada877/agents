@@ -88,7 +88,8 @@ The [official hook reference](https://code.claude.com/docs/en/hooks#stop) define
 ## Codex notify
 
 Set Codex `notify` to an array that contains the absolute path to `rx-codex-notify`.
-Install this only where no other notify program needs preservation, or use a wrapper for both programs.
+Install this only where no other notify program needs preservation.
+To keep the hc hook, use [rx-hc-codex-notify](rx-hc-codex-notify.md) with its absolute path in the Codex `notify` setting.
 Codex supplies one JSON argument. The question check requires an object with `type: agent-turn-complete`.
 The `last-assistant-message` field must contain a string.
 Codex 0.167.0 supplied this contract during an isolated capture test.

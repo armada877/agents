@@ -54,6 +54,8 @@ A user draft holds the message. A plain program gets the text at once.
 `rx send` refuses a `blocked` agent unless you give `--force`. The default
 timeout is 600 seconds.
 
+A foreground `rx send` keeps the caller `working` during this wait. An `rx wait` on the caller can then time out (exit 124). `[test: owner to h, 2026-11-28]`
+
 It wraps the text in a tag: `<rx from="o-topic">text</rx>`. A message to
 your own child also has `reach="rx send <you> when done or stuck"`. A
 sender with no rx name uses its block ID. `--raw` sends the text without a
