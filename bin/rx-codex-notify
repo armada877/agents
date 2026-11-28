@@ -13,7 +13,7 @@ try:
 except Exception:
     direct_question = None
 try:
-    from hc_label import decision_pending
+    from rx_state import decision_pending
 except Exception:
     def decision_pending(terminal):
         return False
@@ -36,7 +36,7 @@ def question_pending():
 
 
 def main():
-    terminal = os.environ.get("HC_TERMINAL_ID")
+    terminal = os.environ.get("REX_BLOCK")
     if not terminal:
         return 0
     labeled = decision_pending(terminal)

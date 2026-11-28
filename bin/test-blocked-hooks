@@ -24,8 +24,30 @@ def load(name):
 
 sys.dont_write_bytecode = True
 
-stop = load("hc-claude-stop")
-notify = load("hc-codex-notify")
+stop = load("rx-claude-stop")
+notify = load("rx-codex-notify")
+BLOCK = "block:terminal"
+
+
+class Registry:
+    def __init__(self, record):
+        self.temp = tempfile.TemporaryDirectory()
+        self.home = self.temp.name
+        path = Path(self.home) / "hc/rx/agents/terminal.json"
+        path.parent.mkdir(parents=True)
+        if record == "unreadable":
+            path.mkdir()
+        elif isinstance(record, str):
+            path.write_text(record)
+        elif record is not None:
+            path.write_text(json.dumps(record))
+
+    def env(self, env=None):
+        base = {"REX_BLOCK": BLOCK} if env is None else env
+        return {**base, "XDG_STATE_HOME": self.home}
+
+    def close(self):
+        self.temp.cleanup()
 
 
 def user(text="Continue", **fields):
@@ -237,7 +259,7 @@ class StopTests(unittest.TestCase):
             stream.write(json.dumps(user()) + '\n')
             stream.flush()
             payload = dict(hook_event_name='Stop', stop_hook_active=False, last_assistant_message='Should I continue?', transcript_path=stream.name)
-            result = subprocess.run([str(Path(__file__).with_name('hc-claude-stop'))], input=json.dumps(payload), capture_output=True, text=True)
+            result = subprocess.run([str(Path(__file__).with_name("rx-claude-stop"))], input=json.dumps(payload), capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)
             self.assertEqual(json.loads(result.stdout)['decision'], 'block')
             self.assertEqual(result.stderr, '')
@@ -250,23 +272,23 @@ class StopTests(unittest.TestCase):
 
 class StopLabelTests(unittest.TestCase):
     def decide(self, entries, label="Put the fix on main?", text="The branch is ready.", env=None, **fields):
-        record = {"labels": {"decision": label}}
-        result = subprocess.CompletedProcess([], 0, json.dumps(record), "")
+        registry = Registry({"block_id": BLOCK, "labels": {"decision": label}})
+        self.addCleanup(registry.close)
         with tempfile.NamedTemporaryFile(mode="w") as stream:
             for entry in entries:
                 stream.write(json.dumps(entry) + "\n")
             stream.flush()
             payload = dict(hook_event_name="Stop", stop_hook_active=False, last_assistant_message=text, transcript_path=stream.name)
             payload.update(fields)
-            with patch.dict(os.environ, {"HC_TERMINAL_ID": "terminal"} if env is None else env, clear=True), patch.object(subprocess, "run", return_value=result) as run:
-                return stop.decision(payload), run
+            with patch.dict(os.environ, registry.env(env), clear=True), patch.object(stop, "decision_pending", wraps=stop.decision_pending) as read:
+                return stop.decision(payload), read
 
     def test_label_without_dialog_blocks(self):
         result, run = self.decide([user()])
         self.assertEqual(result["decision"], "block")
         self.assertIn("AskUserQuestion", result["reason"])
-        self.assertIn("decision=", result["reason"])
-        run.assert_called_once_with(["/usr/bin/hc", "get", "terminal", "--json"], capture_output=True, text=True, timeout=2)
+        self.assertIn('rx label "$REX_BLOCK" decision=', result["reason"])
+        run.assert_called_once_with(BLOCK)
 
     def test_decision_needed_line_blocks(self):
         result, _ = self.decide([user()], text="Decision needed: put the fix on main?")
@@ -302,14 +324,15 @@ class StopLabelTests(unittest.TestCase):
 
 
 class NotifyTests(unittest.TestCase):
-    def run_notify(self, record, returncode=0, error=None, tty_error=None, env=None, args=None):
-        result = subprocess.CompletedProcess([], returncode, json.dumps(record), '')
+    def run_notify(self, record, tty_error=None, env=None, args=None):
+        registry = Registry(record)
+        self.addCleanup(registry.close)
         opened = mock_open()
         if tty_error:
             opened.side_effect = tty_error
-        with patch.object(notify.sys, 'argv', ['hc-codex-notify'] + (args or [])), patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'} if env is None else env, clear=True), patch.object(subprocess, 'run', return_value=result, side_effect=error) as run, patch('builtins.open', opened):
+        with patch.object(notify.sys, 'argv', ['rx-codex-notify'] + (args or [])), patch.dict(os.environ, registry.env(env), clear=True), patch.object(notify, 'decision_pending', wraps=notify.decision_pending) as read, patch('builtins.open', opened):
             self.assertEqual(notify.main(), 0)
-        return run, opened
+        return read, opened
 
     def payload(self, text="Should I continue?", **fields):
         return json.dumps({"type": "agent-turn-complete", "last-assistant-message": text, **fields})
@@ -324,12 +347,10 @@ class NotifyTests(unittest.TestCase):
                 opened().write.assert_called_once_with(notify.BLOCKED)
 
     def test_question_with_failed_label_read(self):
-        for error in [OSError(), subprocess.TimeoutExpired("hc", 2), ValueError()]:
-            with self.subTest(error=error):
-                _, opened = self.run_notify({}, error=error, args=[self.payload()])
+        for record in [None, "unreadable", "{", "x" * (70 * 1024)]:
+            with self.subTest(record=str(record)[:10]):
+                _, opened = self.run_notify(record, args=[self.payload()])
                 opened().write.assert_called_once_with(notify.BLOCKED)
-        _, opened = self.run_notify({}, returncode=1, args=[self.payload()])
-        opened().write.assert_called_once_with(notify.BLOCKED)
 
     def test_non_question(self):
         for text in ["Done.", '"Should I continue?"', "Research questions:\n1. What does the service return?"]:
@@ -351,7 +372,7 @@ class NotifyTests(unittest.TestCase):
             with self.subTest(args=args):
                 _, opened = self.run_notify({}, args=args)
                 opened.assert_not_called()
-                _, opened = self.run_notify({"labels": {"decision": "Choose"}}, args=args)
+                _, opened = self.run_notify({"block_id": BLOCK, "labels": {"decision": "Choose"}}, args=args)
                 opened().write.assert_called_once_with(notify.BLOCKED)
 
     def test_question_without_terminal(self):
@@ -369,18 +390,18 @@ class NotifyTests(unittest.TestCase):
             transcript.write_text(json.dumps(user()) + "\n")
             payload = dict(hook_event_name="Stop", stop_hook_active=False,
                            last_assistant_message="Should I continue?", transcript_path=str(transcript))
-            for name in ["hc-claude-stop", "hc-codex-notify"]:
+            for name in ["rx-claude-stop", "rx-codex-notify"]:
                 link = root / name
                 link.symlink_to(Path(__file__).resolve().with_name(name))
                 result = subprocess.run(
                     [sys.executable, str(link), self.payload()],
                     input=json.dumps(payload), capture_output=True, text=True,
-                    env={**os.environ, "HC_TERMINAL_ID": "terminal", "PATH": ""},
+                    env={**os.environ, "REX_BLOCK": BLOCK, "XDG_STATE_HOME": directory, "PATH": ""},
                     start_new_session=True,
                 )
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(result.stderr, "")
-                if name == "hc-claude-stop":
+                if name == "rx-claude-stop":
                     self.assertEqual(json.loads(result.stdout)["decision"], "block")
                 else:
                     self.assertEqual(result.stdout, "")
@@ -396,16 +417,17 @@ import subprocess
 import sys
 from unittest.mock import mock_open, patch
 
-script, labeled = sys.argv[1:]
+script, labeled, home = sys.argv[1:]
 module = runpy.run_path(script)
 assert module["direct_question"] is None
-record = {"labels": {"decision": "Choose" if labeled == "yes" else ""}}
-result = subprocess.CompletedProcess([], 0, json.dumps(record), "")
+path = os.path.join(home, "hc/rx/agents/terminal.json")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as stream:
+    json.dump({"block_id": "block:terminal", "labels": {"decision": "Choose" if labeled == "yes" else ""}}, stream)
 opened = mock_open()
 payload = {"type": "agent-turn-complete", "last-assistant-message": "Should I continue?"}
-with patch.dict(os.environ, {"HC_TERMINAL_ID": "terminal"}, clear=True), patch.object(sys, "argv", [script, json.dumps(payload)]), patch.object(subprocess, "run", return_value=result) as run, patch("builtins.open", opened):
+with patch.dict(os.environ, {"REX_BLOCK": "block:terminal", "XDG_STATE_HOME": home}, clear=True), patch.object(sys, "argv", [script, json.dumps(payload)]), patch("builtins.open", opened):
     assert module["main"]() == 0
-run.assert_called_once_with(["/usr/bin/hc", "get", "terminal", "--json"], capture_output=True, text=True, timeout=2)
 if labeled == "yes":
     opened.assert_called_once_with("/dev/tty", "wb", buffering=0)
     opened().write.assert_called_once_with(b"\\x1b]7501;state=blocked\\x1b\\\\")
@@ -417,8 +439,8 @@ else:
                 root = Path(directory)
                 if source is not None:
                     (root / "hc_question.py").write_text(source)
-                (root / "hc_label.py").write_bytes(Path(__file__).with_name("hc_label.py").read_bytes())
-                for name in ["hc-claude-stop", "hc-codex-notify"]:
+                (root / "rx_state.py").write_bytes(Path(__file__).with_name("rx_state.py").read_bytes())
+                for name in ["rx-claude-stop", "rx-codex-notify"]:
                     script = root / name
                     script.write_bytes(Path(__file__).with_name(name).read_bytes())
                     script.chmod(0o755)
@@ -427,12 +449,12 @@ else:
                     result = subprocess.run(
                         [str(script), self.payload()], input=json.dumps(payload),
                         capture_output=True, text=True, start_new_session=True,
-                        env={"HC_TERMINAL_ID": "terminal"}, timeout=5,
+                        env={"REX_BLOCK": BLOCK}, timeout=5,
                     )
                     self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
                 for labeled in ["yes", "no"]:
                     result = subprocess.run(
-                        ["/usr/bin/python3", "-I", "-c", probe, str(root / "hc-codex-notify"), labeled],
+                        ["/usr/bin/python3", "-I", "-c", probe, str(root / "rx-codex-notify"), labeled, str(root / "state")],
                         capture_output=True, text=True, timeout=5,
                     )
                     self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
@@ -441,7 +463,7 @@ else:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             marker = root / "selected-from-path"
-            for name in ["python3", "hc"]:
+            for name in ["python3", "rx", "rex"]:
                 fake = root / name
                 fake.write_text(f"#!/bin/sh\nprintf selected > '{marker}'\nexit 99\n")
                 fake.chmod(0o755)
@@ -449,18 +471,18 @@ else:
             transcript.write_text(json.dumps(user()) + "\n")
             payload = dict(hook_event_name="Stop", stop_hook_active=False,
                            last_assistant_message="Should I continue?", transcript_path=str(transcript))
-            for name in ["hc-claude-stop", "hc-codex-notify"]:
+            for name in ["rx-claude-stop", "rx-codex-notify"]:
                 script = Path(__file__).resolve().with_name(name)
                 self.assertEqual(script.read_text().splitlines()[0], "#!/usr/bin/python3")
                 result = subprocess.run(
                     [str(script), self.payload()], input=json.dumps(payload),
                     capture_output=True, text=True, start_new_session=True,
-                    env={**os.environ, "PATH": str(root), "HC_TERMINAL_ID": "terminal"},
+                    env={**os.environ, "PATH": str(root), "REX_BLOCK": BLOCK, "XDG_STATE_HOME": str(root)},
                     timeout=5,
                 )
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(result.stderr, "")
-                if name == "hc-claude-stop":
+                if name == "rx-claude-stop":
                     self.assertEqual(json.loads(result.stdout)["decision"], "block")
                 else:
                     self.assertEqual(result.stdout, "")
@@ -471,27 +493,29 @@ else:
         opened().write.assert_called_once_with(notify.BLOCKED)
 
     def test_labeled_exact_bytes(self):
-        run, opened = self.run_notify({'labels': {'decision': 'Choose'}})
-        run.assert_called_once_with(['/usr/bin/hc', 'get', 'terminal', '--json'], capture_output=True, text=True, timeout=2)
+        read, opened = self.run_notify({'block_id': BLOCK, 'labels': {'decision': 'Choose'}})
+        read.assert_called_once_with(BLOCK)
         opened.assert_called_once_with('/dev/tty', 'wb', buffering=0)
         opened().write.assert_called_once_with(b'\x1b]7501;state=blocked\x1b\\')
 
     def test_unlabeled(self):
-        for record in [{}, {'labels': {}}, {'labels': {'decision': ''}}, {'labels': {'decision': '  '}}, {'labels': {'decision': 1}}, [], {'labels': []}]:
+        for record in [{}, {'labels': {}}, {'labels': {'decision': ''}}, {'labels': {'decision': '  '}}, {'labels': {'decision': 1}}, [], {'labels': []}, {'labels': {'other': 'Choose'}}]:
             _, opened = self.run_notify(record)
             opened.assert_not_called()
 
     def test_failed_reads(self):
-        for error in [OSError(), subprocess.TimeoutExpired('hc', 2), ValueError()]:
-            _, opened = self.run_notify({}, error=error)
+        for record in [None, 'unreadable', 'x' * (70 * 1024)]:
+            _, opened = self.run_notify(record)
             opened.assert_not_called()
-        _, opened = self.run_notify({}, returncode=1)
-        opened.assert_not_called()
 
     def test_invalid_json(self):
-        with patch.dict(os.environ, {'HC_TERMINAL_ID': 'terminal'}, clear=True), patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{', '')), patch('builtins.open') as opened:
-            self.assertEqual(notify.main(), 0)
+        for record in ['{', 'null', '[]']:
+            _, opened = self.run_notify(record)
             opened.assert_not_called()
+
+    def test_invalid_terminal(self):
+        _, opened = self.run_notify({'block_id': BLOCK, 'labels': {'decision': 'Choose'}}, env={'REX_BLOCK': '../terminal'})
+        opened.assert_not_called()
 
     def test_missing_environment(self):
         run, opened = self.run_notify({}, env={})

@@ -5,7 +5,7 @@ These programs do not change settings.
 
 ## Claude Stop
 
-Add `hc-claude-stop` as a command in the Claude `Stop` hook list.
+Add `rx-claude-stop` as a command in the Claude `Stop` hook list.
 Use its absolute executable path. Keep all existing hooks.
 
 The program reads JSON from standard input. It uses `last_assistant_message` for final text.
@@ -15,8 +15,8 @@ Only assistant `tool_use` blocks count as calls. `SendMessage` inputs do not cou
 One current-turn dialog permits Stop, even if the final text contains another question.
 
 Both programs import the shared question filter from `hc_question.py`, beside the scripts.
-Both programs import the shared label check from `hc_label.py`, beside the scripts.
-A missing or broken `hc_label.py` disables only the label check.
+Both programs import the shared label check from `rx_state.py`, beside the scripts.
+A missing or broken `rx_state.py` disables only the label check.
 They resolve script symlinks before importing it. Keep this module beside the script targets.
 A missing or broken module disables question detection without error output.
 The Codex hook still checks decision labels when the module cannot load.
@@ -68,10 +68,11 @@ The program does not fall back to transcript text when final text is absent.
 A match without a current-turn dialog returns `decision: block` with an instruction to use `AskUserQuestion`.
 
 The program also checks the decision label when the final text has no matching question.
-It reads `HC_TERMINAL_ID` and runs `/usr/bin/hc get` with `--json` and a two-second timeout.
+It reads the block ID from `REX_BLOCK`. It reads the rx record of that block from
+`${XDG_STATE_HOME:-$HOME/.local/state}/hc/rx/agents/<id>.json`. It runs no program.
 A nonempty string in `labels.decision` without a current-turn dialog also returns `decision: block`.
 The reason tells the agent to use `AskUserQuestion`, or to clear the label if it needs no answer.
-Missing `HC_TERMINAL_ID`, a failed label read, or an empty label permits Stop.
+Missing `REX_BLOCK`, a failed record read, or an empty label permits Stop.
 Thus, `Decision needed: put the fix on main?` with a decision label opens a dialog.
 The program permits Stop when `stop_hook_active` is true. Thus, it requests at most one continuation per hook chain.
 A new user turn can supply `stop_hook_active: false` and start another check.
@@ -86,7 +87,7 @@ The [official hook reference](https://code.claude.com/docs/en/hooks#stop) define
 
 ## Codex notify
 
-Set Codex `notify` to an array that contains the absolute path to `hc-codex-notify`.
+Set Codex `notify` to an array that contains the absolute path to `rx-codex-notify`.
 Install this only where no other notify program needs preservation, or use a wrapper for both programs.
 Codex supplies one JSON argument. The question check requires an object with `type: agent-turn-complete`.
 The `last-assistant-message` field must contain a string.
@@ -95,7 +96,7 @@ Codex 0.167.0 supplied this contract during an isolated capture test.
 Other fields do not affect the check.
 Missing arguments, extra arguments, malformed JSON, wrong events, and invalid field types disable the question check.
 
-The program reads `HC_TERMINAL_ID`. It runs `/usr/bin/hc get` with `--json` and a two-second timeout.
+The program reads `REX_BLOCK` and the rx record of that block, as the Stop hook does.
 A nonempty string in `labels.decision` or a direct question causes one write to `/dev/tty`.
 The shared filter checks the final message. It does not read a transcript.
 A failed label read does not disable the question check.
@@ -103,15 +104,15 @@ Invalid notify input does not disable the existing label check.
 The bytes are `ESC ] 7501 ; state=blocked ESC \`, without spaces or a newline.
 No other label affects the result. The program does not clear labels or report `done`.
 
-Missing `HC_TERMINAL_ID` or an unavailable tty produces no output.
-Without a matching question, absent labels, whitespace labels, invalid label JSON, and failed commands produce no output.
-A missing `/usr/bin/hc` program disables only the label check.
-The hooks do not support alternate executable locations through `PATH`.
+Missing `REX_BLOCK` or an unavailable tty produces no output.
+Without a matching question, absent labels, whitespace labels, and an invalid or missing record produce no output.
+A record larger than 64 KiB counts as missing.
+The hooks run no program for the label check. They do not search `PATH`.
 The program always exits successfully for these cases.
 An installed notify program is required for this status change.
-The surrounding terminal must support OSC 7501.
+The surrounding terminal must support OSC 7501. Rex supports it.
 This fallback writes no labels and does not open a question dialog.
-`hc-decisions` still lists only labeled decisions. It cannot list a question detected only by this fallback.
+`rx decisions` still lists only labeled decisions. It cannot list a question detected only by this fallback.
 
 ## Checks
 
@@ -119,6 +120,7 @@ Run `bin/test-blocked-hooks` for the focused tests.
 Tests require each filter call on one MiB of question marks or repeated `a?` text to finish within one second.
 A 128 KiB line without sentence separators must also finish within one second.
 Tests cover the byte window, Unicode boundaries, and fake executables in `PATH`.
+Tests write rx records in a temporary `XDG_STATE_HOME`. They do not need Rex.
 Tests check silent success for missing modules, syntax errors, and errors during module execution.
 They also check decision labels when question detection cannot load.
 The test loader disables bytecode writes. It creates no `__pycache__` files.
@@ -127,6 +129,7 @@ Run live tests in isolated workers before installation.
 ## Isolated live results
 
 The owner reported both live tests passed. These results apply to the tested versions.
+These tests ran on hc, before the rx port. The rx port has no live test yet. `[unverified]`
 
 - Claude Code 2.1.319 changed `Should I use the blue option?` into `AskUserQuestion`.
   hc then reported `blocked` with kind `question`.

@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    from hc_label import label_value
+    from rx_state import label_value
 except Exception:
     label_value = None
 
@@ -77,6 +77,15 @@ def allowed_path(lexical, resolved, config):
     )
 
 
+def orchestrator():
+    if os.environ.get("RX_ROLE") == "orchestrator":
+        return True
+    block = os.environ.get("REX_BLOCK")
+    if not block or label_value is None:
+        return False
+    return label_value(block, "role") == "orchestrator"
+
+
 def denial():
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -94,10 +103,7 @@ def decision(payload):
         "Edit": "file_path", "Write": "file_path",
         "NotebookEdit": "notebook_path",
     }.get(payload.get("tool_name"))
-    terminal = os.environ.get("HC_TERMINAL_ID")
-    if field is None or not terminal or label_value is None:
-        return None
-    if label_value(terminal, "role") != "orchestrator":
+    if field is None or not orchestrator():
         return None
     inputs = payload.get("tool_input")
     target = inputs.get(field) if isinstance(inputs, dict) else None

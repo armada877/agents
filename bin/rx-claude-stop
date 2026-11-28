@@ -13,7 +13,7 @@ try:
 except Exception:
     direct_question = None
 try:
-    from hc_label import decision_pending
+    from rx_state import decision_pending
 except Exception:
     decision_pending = None
 
@@ -55,7 +55,7 @@ QUESTION_REASON = "Ask the user with AskUserQuestion. Put all open questions in 
 LABEL_REASON = (
     "Your decision label is set, but you showed the user no dialog. "
     "Ask the user with AskUserQuestion. Put all open questions in one dialog. "
-    "If you need no answer, clear the label with: hc label \"$HC_TERMINAL_ID\" decision= decision-kind="
+    "If you need no answer, clear the label with: rx label \"$REX_BLOCK\" decision= decision-kind="
 )
 
 
@@ -64,7 +64,7 @@ def asks_question(text):
 
 
 def labeled():
-    terminal = os.environ.get("HC_TERMINAL_ID")
+    terminal = os.environ.get("REX_BLOCK")
     return bool(terminal) and decision_pending is not None and decision_pending(terminal)
 
 

@@ -13,7 +13,9 @@ import unittest
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-script = Path(__file__).resolve().with_name("hc-owner-guard")
+script = Path(__file__).resolve().with_name("rx-owner-guard")
+sys.path.insert(0, str(script.parent))
+import rx_state
 loader = importlib.machinery.SourceFileLoader("owner_guard", str(script))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 guard = importlib.util.module_from_spec(spec)
@@ -29,10 +31,11 @@ class GuardTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.git("init", "-q", str(self.repo))
         self.state = self.repo / "state"
+        self.state.mkdir()
         self.config = self.root / "config"
         self.allow = self.config / "hc/owner-guard-allow"
         self.env = patch.dict(os.environ, {
-            "HC_TERMINAL_ID": "terminal", "XDG_STATE_HOME": str(self.state),
+            "REX_BLOCK": "block:terminal", "RX_ROLE": "", "XDG_STATE_HOME": str(self.state),
             "XDG_CONFIG_HOME": str(self.config),
         })
         self.env.start()
@@ -41,7 +44,19 @@ class GuardTests(unittest.TestCase):
     def git(self, *args):
         return run_process(["/usr/bin/git", *args], check=True, capture_output=True, text=True)
 
-    def invoke(self, target, tool="Write", record=None, error=None, returncode=0, **fields):
+    def write_record(self, record):
+        block = os.environ.get("REX_BLOCK")
+        if not block:
+            return
+        path = rx_state.record_path(block)
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_dir():
+            path.rmdir()
+        path.write_text(record if isinstance(record, str) else json.dumps(record))
+
+    def invoke(self, target, tool="Write", record=None, **fields):
         payload = {
             "hook_event_name": "PreToolUse", "tool_name": tool,
             "tool_input": {"notebook_path" if tool == "NotebookEdit" else "file_path": str(target)},
@@ -49,17 +64,8 @@ class GuardTests(unittest.TestCase):
         }
         payload.update(fields)
         output = io.StringIO()
-        record = {"labels": {"role": "orchestrator"}} if record is None else record
-
-        def fake_hc(command, **kwargs):
-            if command[0] == "/usr/bin/hc":
-                self.assertEqual(command, ["/usr/bin/hc", "get", "terminal", "--json"])
-                if error:
-                    raise error
-                return subprocess.CompletedProcess(command, returncode, json.dumps(record), "")
-            return run_process(command, **kwargs)
-
-        with patch.object(subprocess, "run", side_effect=fake_hc), patch.object(sys, "stdin", io.StringIO(json.dumps(payload))), patch.object(sys, "stdout", output):
+        self.write_record({"block_id": "block:terminal", "labels": {"role": "orchestrator"}} if record is None else record)
+        with patch.object(sys, "stdin", io.StringIO(json.dumps(payload))), patch.object(sys, "stdout", output):
             self.assertEqual(guard.main(), 0)
         return json.loads(output.getvalue()) if output.getvalue() else None
 
@@ -261,13 +267,37 @@ class GuardTests(unittest.TestCase):
             self.assertIsNone(self.invoke("file", record=record))
 
     def test_failed_lookup(self):
-        self.assertIsNone(self.invoke("file", returncode=1))
-        for error in [OSError(), ValueError(), subprocess.TimeoutExpired("hc", 2)]:
-            self.assertIsNone(self.invoke("file", error=error))
+        for record in ["{", "null", "x" * (rx_state.MAX_RECORD + 1)]:
+            with self.subTest(record=record[:8]):
+                self.assertIsNone(self.invoke("file", record=record))
+        path = rx_state.record_path("block:terminal")
+        path.unlink()
+        path.mkdir()
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": "file"}, "cwd": str(self.repo)}
+        with patch.object(sys, "stdin", io.StringIO(json.dumps(payload))), patch.object(sys, "stdout", io.StringIO()) as output:
+            self.assertEqual(guard.main(), 0)
+        self.assertEqual(output.getvalue(), "")
 
     def test_no_terminal(self):
-        with patch.dict(os.environ, {"HC_TERMINAL_ID": ""}):
+        with patch.dict(os.environ, {"REX_BLOCK": ""}):
             self.assertIsNone(self.invoke("file"))
+
+    def test_invalid_terminal(self):
+        with patch.dict(os.environ, {"REX_BLOCK": "../terminal"}):
+            self.assertIsNone(self.invoke("file"))
+
+    def test_role_from_environment(self):
+        with patch.dict(os.environ, {"RX_ROLE": "orchestrator"}):
+            self.denied(self.invoke(self.repo / "file", record={}))
+        with patch.dict(os.environ, {"RX_ROLE": "orchestrator", "REX_BLOCK": ""}):
+            self.denied(self.invoke(self.repo / "file"))
+        for role in ["worker", "Orchestrator", ""]:
+            with self.subTest(role=role), patch.dict(os.environ, {"RX_ROLE": role}):
+                self.assertIsNone(self.invoke("file", record={"labels": {"role": "worker"}}))
+
+    def test_environment_or_registry(self):
+        with patch.dict(os.environ, {"RX_ROLE": "worker"}):
+            self.denied(self.invoke(self.repo / "file"))
 
     def test_unmatched_calls(self):
         self.assertIsNone(self.invoke("file", tool="Bash"))
@@ -319,44 +349,31 @@ class GuardTests(unittest.TestCase):
         (self.repo / ".git").write_text("gitdir: missing\n")
         self.assertIsNone(self.invoke("file"))
 
-    def run_installed(self, installed):
-        probe = """
-import json
-import runpy
-import subprocess
-import sys
-from unittest.mock import patch
-
-actual_run = subprocess.run
-
-def fake_hc(command, **kwargs):
-    if command[0] == "/usr/bin/hc":
-        record = {"labels": {"role": "orchestrator"}}
-        return subprocess.CompletedProcess(command, 0, json.dumps(record), "")
-    return actual_run(command, **kwargs)
-
-with patch.object(subprocess, "run", side_effect=fake_hc):
-    runpy.run_path(sys.argv[1], run_name="__main__")
-"""
+    def run_installed(self, installed, **env):
+        self.write_record({"block_id": "block:terminal", "labels": {"role": "orchestrator"}})
         payload = {
             "hook_event_name": "PreToolUse", "tool_name": "Write",
             "tool_input": {"file_path": str(self.repo / "file")},
         }
         return run_process(
-            [sys.executable, "-I", "-c", probe, str(installed)],
+            [sys.executable, "-I", str(installed)],
             input=json.dumps(payload), capture_output=True, text=True,
+            env={**os.environ, **env},
         )
 
     def test_missing_label_module(self):
-        installed = self.root / "hc-owner-guard"
+        installed = self.root / "rx-owner-guard"
         installed.write_bytes(script.read_bytes())
         result = self.run_installed(installed)
         self.assertEqual(
             (result.returncode, result.stdout, result.stderr), (0, "", ""),
         )
+        result = self.run_installed(installed, RX_ROLE="orchestrator")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.denied(json.loads(result.stdout))
 
     def test_symlinked_install(self):
-        installed = self.root / "hc-owner-guard"
+        installed = self.root / "rx-owner-guard"
         installed.symlink_to(script)
         result = self.run_installed(installed)
         self.assertEqual((result.returncode, result.stderr), (0, ""))

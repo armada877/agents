@@ -1,4 +1,4 @@
-# hc-owner-guard
+# rx-owner-guard
 
 This Claude `PreToolUse` hook keeps owners from editing files in a git
 worktree with `Edit`, `Write`, or `NotebookEdit`. Bash is outside its scope.
@@ -13,9 +13,11 @@ The guard expands a target only when it equals `~` or starts with `~/`.
 It keeps `~user` as a literal path part.
 Relative paths use `cwd`, or the process directory when `cwd` is absent.
 
-The program reads the terminal from `HC_TERMINAL_ID`. It uses `hc_label.py`
-to read the role label with `/usr/bin/hc get <terminal> --json`.
-Only the exact role `orchestrator` activates the guard.
+The guard is active when `RX_ROLE` is exactly `orchestrator`. `rx run` sets
+this variable when it starts an agent with the label `role=orchestrator`.
+The guard is also active when the rx record of `REX_BLOCK` has the role label
+`orchestrator`. It reads the record with `rx_state.py` and runs no program.
+Only the exact role `orchestrator` activates the guard. Either source is enough.
 
 The guard checks the path and its resolved symlink target. It checks parent
 folders for `.git` files or folders. It verifies each candidate with
@@ -53,11 +55,12 @@ A denied call returns JSON with `hookSpecificOutput`, `hookEventName` set to
 owner to send the change to a build worker. The exit code is zero.
 Allowed calls produce no output and exit zero.
 
-Missing labels, failed lookups, invalid input, and path errors produce no
-output. This hook permits calls when it cannot check them. Each subprocess
+Missing labels, failed record reads, invalid input, and path errors produce no
+output. This hook permits calls when it cannot check them. The `RX_ROLE` check
+does not read a file, so a missing record does not disable it. Each subprocess
 has a two-second timeout. The program reads the complete JSON input. Large
 content fields do not skip the role and path checks. Memory use grows with
-the input size. A missing label module produces no output and exits zero.
+the input size. A missing `rx_state.py` disables only the record check. The `RX_ROLE` check stays active.
 
 ## Pattern limits
 
@@ -69,7 +72,7 @@ Use `[?]`, `[*]`, and `[[]` to match literal `?`, `*`, and `[` characters.
 
 ## Settings
 
-Install the program beside `hc_label.py`. Add this entry to Claude settings.
+Install the program beside `rx_state.py`. Add this entry to Claude settings.
 Replace the command with the installed program's absolute path.
 Merge the entry with existing hooks. This repo does not change settings.
 
@@ -82,7 +85,7 @@ Merge the entry with existing hooks. This repo does not change settings.
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/bin/hc-owner-guard"
+            "command": "/path/to/bin/rx-owner-guard"
           }
         ]
       }
@@ -93,5 +96,10 @@ Merge the entry with existing hooks. This repo does not change settings.
 
 ## Checks
 
-Run `bin/test-hc-owner-guard`. The tests use temporary git worktrees and fake
-hc output. Run `bin/test-blocked-hooks` after changes to `hc_label.py`.
+Run `bin/test-rx-owner-guard`. The tests use temporary git worktrees and rx
+records in a temporary state folder. Run `bin/test-blocked-hooks` after changes
+to `rx_state.py`.
+
+On macOS, the default temporary folder is under the `/var` symlink. Then 11
+allow-list and symlink tests fail, also on the hc version. Set `TMPDIR` to a
+real path, for example `TMPDIR=/private/tmp`, to run them. `[test: TMPDIR run, rx-agents]`

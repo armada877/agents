@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: hc-show <file.md | image>" >&2
+  echo "Usage: rx-show <file.md | image>" >&2
   exit 1
 }
 
@@ -19,27 +19,29 @@ is_markdown() {
 }
 
 is_image() {
-  [[ ${source_file,,} =~ \.(png|jpe?g|gif|webp)$ ]]
+  local lower
+  lower="$(printf '%s' "$source_file" | tr '[:upper:]' '[:lower:]')"
+  [[ $lower =~ \.(png|jpe?g|gif|webp)$ ]]
 }
 
 viewer() {
   if is_markdown; then
     echo glow -t
   elif is_image; then
-    echo --hold kitten icat
+    echo chafa
   else
     echo less
   fi
 }
 
 open_window() {
-  local title="hc-show · $file_name"
+  local label="rx-show · $file_name"
   local -a view
   read -ra view <<<"$(viewer)"
-  if kitty --detach --title "$title" "${view[@]}" "$source_file"; then
-    echo "hc-show: opened a window: $title" >&2
+  if rex run --focus=false --keep-open --label "$label" -- "${view[@]}" "$source_file" >/dev/null; then
+    echo "rx-show: opened a tab: $label" >&2
   else
-    echo "hc-show: could not open a window" >&2
+    echo "rx-show: could not open a tab" >&2
   fi
 }
 
@@ -51,19 +53,19 @@ push_command() {
 send_push() {
   local command
   if ! is_markdown; then
-    echo "hc-show: no push: only Markdown files go to the phone" >&2
+    echo "rx-show: no push: only Markdown files go to the phone" >&2
     return 0
   fi
   if ! command="$(push_command)" || [[ -z $command ]]; then
-    echo "hc-show: no push: $push_config has no command" >&2
+    echo "rx-show: no push: $push_config has no command" >&2
     return 0
   fi
   if "$command" "$source_file"; then
-    echo "hc-show: sent a push" >&2
+    echo "rx-show: sent a push" >&2
   else
-    echo "hc-show: the push failed: $command" >&2
+    echo "rx-show: the push failed: $command" >&2
   fi
 }
 
-[[ ${HC_SHOW_WINDOW:-1} == 0 ]] || open_window
-[[ ${HC_SHOW_PUSH:-1} == 0 ]] || send_push
+[[ ${RX_SHOW_WINDOW:-1} == 0 ]] || open_window
+[[ ${RX_SHOW_PUSH:-1} == 0 ]] || send_push
