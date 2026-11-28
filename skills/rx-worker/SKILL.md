@@ -48,6 +48,8 @@ first:
 
 ## Build and run
 
+Preview images with [rx-show](../../bin/rx-show.md), not `chafa`.
+
 Run changed products with `hc-sandbox build`, `up`, and `test`. Read
 `.hc-sandbox/out/` screenshots. Without `hc-sandbox.toml`,
 run `hc-sandbox --help`.
@@ -65,7 +67,7 @@ or prompt other agents. Do not change the Rex layout.
 
 ## Report
 
-Replace the report at the path in your first prompt:
+Replace the report named in your first prompt:
 
 ```markdown
 # <worker-name> report
