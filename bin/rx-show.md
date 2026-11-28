@@ -8,7 +8,7 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
 1. It opens the file in Rex. Focus does not move. The viewer stays open after its command exits.
    - A Markdown file opens in a new tab with `glow -t`.
    - An image (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) opens in a right split beside `$REX_BLOCK`.
-     The split takes 60 percent of the space. Its label is `rx-show · <file name>`.
+     The split takes 60 percent of the space. Its label is `<file name> preview`.
      An earlier block with that label in the caller's session closes first. The caller stays open.
      Without `REX_BLOCK`, the image opens in a new tab with `rex run`.
    - Other files open in a new tab with `less`.
@@ -17,7 +17,7 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
 
 `rx-show-kitty` sends images with the Kitty graphics protocol.
 It sends PNG bytes with `f=100,a=T,c=<columns>` in chunks of 4096 base64 bytes.
-The last chunk can be shorter. The helper reads the pane width in cells.
+The last chunk can be shorter. The helper reads its own terminal width in cells inside the split.
 PNG files pass through directly. ImageMagick converts other formats to PNG.
 For animated files, the helper shows the first frame.
 Install `python3`, `magick`, and `jq` on the machine that runs Rex.
@@ -28,6 +28,11 @@ A successful open prints the block ID to stderr.
 A failed viewer or a failed push prints one line to stderr. It does not stop
 the other step. `rx-show` exits 0 after it starts. It exits 1 for a missing
 file.
+
+## Image previews
+
+Use `rx-show <image>` for agent image previews in place of `chafa`.
+Take screenshots at 2x device scale. Crop screenshots to the content before you run `rx-show`.
 
 ## Push command
 

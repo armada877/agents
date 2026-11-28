@@ -94,16 +94,16 @@ class RxShowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             self.recorded("rex"),
-            ["run", "--focus=false", "--keep-open", "--label", "rx-show · shot.PNG", "--", str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
+            ["run", "--focus=false", "--keep-open", "--label", "shot.PNG preview", "--", str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
         )
         self.assertIsNone(self.recorded("fake-push"))
         self.assertIn("only Markdown", result.stderr)
 
     def test_image_replaces_split_in_caller_session(self):
         blocks = {"blocks": [
-            {"label": "rx-show · shot.PNG", "block_id": "block:old"},
+            {"label": "shot.PNG preview", "block_id": "block:old"},
             {"label": "other", "block_id": "block:other"},
-            {"label": "rx-show · shot.PNG", "block_id": "block:caller"},
+            {"label": "shot.PNG preview", "block_id": "block:caller"},
         ]}
         result = self.run_show(
             str(self.image), REX_BLOCK="block:caller", FAKE_BLOCKS=json.dumps(blocks)
@@ -115,7 +115,7 @@ class RxShowTests(unittest.TestCase):
             ["block", "ls", "-s", "session:test", "--json"],
             ["block", "close", "block:old"],
             ["split", "-b", "block:caller", "--split=right", "--ratio", "60",
-             "--focus=false", "--keep-open", "--label", "rx-show · shot.PNG",
+             "--focus=false", "--keep-open", "--label", "shot.PNG preview",
              "--", str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
         ])
         self.assertIn("block:new", result.stderr)

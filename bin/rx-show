@@ -37,6 +37,7 @@ open_window() {
   local -a view command
   local session old_blocks old opened
   if is_image; then
+    label="$file_name preview"
     view=("$(dirname "$(realpath "$0")")/rx-show-kitty")
   else
     read -ra view <<<"$(viewer)"
