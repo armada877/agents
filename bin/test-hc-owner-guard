@@ -29,8 +29,11 @@ class GuardTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.git("init", "-q", str(self.repo))
         self.state = self.repo / "state"
+        self.config = self.root / "config"
+        self.allow = self.config / "hc/owner-guard-allow"
         self.env = patch.dict(os.environ, {
             "HC_TERMINAL_ID": "terminal", "XDG_STATE_HOME": str(self.state),
+            "XDG_CONFIG_HOME": str(self.config),
         })
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -70,6 +73,130 @@ class GuardTests(unittest.TestCase):
         for tool in ["Edit", "Write", "NotebookEdit"]:
             with self.subTest(tool=tool):
                 self.denied(self.invoke(self.repo / "new" / "file", tool))
+
+    def write_allow(self, content):
+        self.allow.parent.mkdir(parents=True, exist_ok=True)
+        self.allow.write_text(content)
+
+    def test_allow_match(self):
+        self.write_allow(str(self.repo / "reports/*.md") + "\n")
+        for tool in ["Edit", "Write", "NotebookEdit"]:
+            self.assertIsNone(self.invoke(self.repo / "reports/scan.md", tool))
+        self.denied(self.invoke(self.repo / "reports/scan.txt"))
+        self.denied(self.invoke(self.repo / "reports/nested/scan.md"))
+        self.denied(self.invoke(self.repo / "other/scan.md"))
+
+    def test_allow_comments_and_blank_lines(self):
+        self.write_allow("\n# " + str(self.repo / "blocked") + "\n  \n" + str(self.repo / "report") + "\n")
+        self.assertIsNone(self.invoke(self.repo / "report"))
+        self.denied(self.invoke(self.repo / "blocked"))
+
+    def test_allow_home_expansion(self):
+        self.write_allow("~/report.md\n")
+        with patch.dict(os.environ, {"HOME": str(self.repo)}):
+            self.assertIsNone(self.invoke(self.repo / "report.md"))
+            self.denied(self.invoke(self.repo / "other.md"))
+
+    def test_allow_missing_file(self):
+        self.denied(self.invoke(self.repo / "report.md"))
+
+    def test_allow_unreadable_file(self):
+        self.write_allow(str(self.repo / "report.md"))
+        with patch.object(Path, "read_text", side_effect=PermissionError()):
+            self.denied(self.invoke(self.repo / "report.md"))
+
+    def test_allow_relative_pattern_is_ignored(self):
+        self.write_allow("report.md\n")
+        self.denied(self.invoke(self.repo / "report.md"))
+
+    def test_allow_symlink_target(self):
+        link = self.root / "link"
+        link.symlink_to(self.repo, target_is_directory=True)
+        self.write_allow(str(self.repo / "report.md"))
+        self.denied(self.invoke(link / "report.md"))
+        self.write_allow(str(self.repo / "report.md") + "\n" + str(link / "report.md"))
+        self.assertIsNone(self.invoke(link / "report.md"))
+
+    def test_allow_lexical_symlink(self):
+        link = self.repo / "link"
+        link.symlink_to(self.repo / "target")
+        self.write_allow(str(link))
+        self.denied(self.invoke(link))
+        self.denied(self.invoke(self.repo / "target"))
+        self.write_allow(str(link) + "\n" + str(self.repo / "target"))
+        self.assertIsNone(self.invoke(link))
+
+    def test_allow_folder_link(self):
+        reports = self.repo / "reports"
+        source = self.repo / "src"
+        source.mkdir()
+        reports.symlink_to(source, target_is_directory=True)
+        for pattern in [reports / "*.md", reports / "README.md"]:
+            self.write_allow(str(pattern))
+            self.denied(self.invoke(reports / "README.md"))
+            self.write_allow(str(pattern) + "\n" + str(source / "*.md"))
+            self.assertIsNone(self.invoke(reports / "README.md"))
+
+    def test_allow_file_link_in_folder(self):
+        reports = self.repo / "reports"
+        reports.mkdir()
+        link = reports / "scan.md"
+        target = self.repo / "src/product.py"
+        link.symlink_to(target)
+        self.write_allow(str(reports / "*.md"))
+        for tool in ["Edit", "Write", "NotebookEdit"]:
+            self.denied(self.invoke(link, tool))
+        self.write_allow(str(reports / "*.md") + "\n" + str(target))
+        for tool in ["Edit", "Write", "NotebookEdit"]:
+            self.assertIsNone(self.invoke(link, tool))
+
+    def test_allow_invalid_text(self):
+        self.write_allow("")
+        self.allow.write_bytes(b"\xff")
+        self.denied(self.invoke(self.repo / "report.md"))
+
+    def test_relative_config_uses_default(self):
+        self.write_allow(str(self.repo / "unlisted.md"))
+        with patch.dict(os.environ, {"HOME": str(self.root), "XDG_CONFIG_HOME": "config"}), patch.object(os, "getcwd", return_value=str(self.root)):
+            self.allow = self.root / ".config/hc/owner-guard-allow"
+            self.write_allow(str(self.repo / "report.md"))
+            self.assertIsNone(self.invoke(self.repo / "report.md"))
+            self.denied(self.invoke(self.repo / "unlisted.md"))
+            self.denied(self.invoke(self.allow))
+
+    def test_target_named_home_stays_relative(self):
+        self.denied(self.invoke("~nobody/new"))
+
+    def test_target_home_expansion(self):
+        with patch.dict(os.environ, {"HOME": str(self.repo), "XDG_CONFIG_HOME": ""}):
+            self.denied(self.invoke("~/.config/hc/owner-guard-allow", cwd=str(self.root)))
+            self.denied(self.invoke("~/report.md", cwd=str(self.root)))
+            self.allow = self.repo / ".config/hc/owner-guard-allow"
+            self.write_allow("~/report.md\n")
+            self.assertIsNone(self.invoke("~/report.md", cwd=str(self.root)))
+
+    def test_allow_file_is_protected(self):
+        self.write_allow(str(self.allow.parent / "*") + "\n" + str(self.repo / "*") + "\n")
+        self.denied(self.invoke(self.allow))
+        link = self.repo / "config-link"
+        link.symlink_to(self.allow)
+        self.denied(self.invoke(link))
+
+    def test_allow_file_symlink_is_protected(self):
+        target = self.state / "hc/goal/state.md"
+        target.parent.mkdir(parents=True)
+        target.write_text(str(target.parent / "*") + "\n")
+        self.allow.parent.mkdir(parents=True)
+        self.allow.symlink_to(target)
+        self.denied(self.invoke(self.allow))
+        self.denied(self.invoke(target))
+
+    def test_default_config_folder(self):
+        with patch.dict(os.environ, {"HOME": str(self.root), "XDG_CONFIG_HOME": ""}):
+            self.allow = self.root / ".config/hc/owner-guard-allow"
+            self.write_allow(str(self.repo / "report.md"))
+            self.assertIsNone(self.invoke(self.repo / "report.md"))
+            self.denied(self.invoke(self.allow))
 
     def test_existing_file(self):
         target = self.repo / "file"
