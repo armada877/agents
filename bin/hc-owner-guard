@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+from fnmatch import fnmatchcase
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,41 @@ def state_file(path):
     )
 
 
+def allow_file():
+    base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(os.path.abspath(Path(base) / "hc/owner-guard-allow"))
+
+
+def allowed_path(lexical, resolved, config):
+    try:
+        lines = config.read_text().splitlines()
+    except (OSError, UnicodeError):
+        return False
+    for line in lines:
+        pattern = line.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        if pattern.startswith("~/"):
+            pattern = str(Path.home()) + pattern[1:]
+        if not Path(pattern).is_absolute():
+            continue
+        parts = Path(pattern).parts
+        for target in (lexical, resolved):
+            if len(target.parts) == len(parts) and all(
+                fnmatchcase(part, glob) for part, glob in zip(target.parts, parts)
+            ):
+                return True
+    return False
+
+
+def denial():
+    return {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": REASON,
+    }}
+
+
 def decision(payload):
     if not isinstance(payload, dict):
         return None
@@ -66,14 +102,15 @@ def decision(payload):
         path = Path(payload.get("cwd") or os.getcwd()) / path
     lexical = Path(os.path.abspath(path))
     resolved = path.resolve()
+    config = allow_file()
+    if {lexical, resolved} & {config, config.resolve()}:
+        return denial()
+    if allowed_path(lexical, resolved, config):
+        return None
     if state_file(lexical) and state_file(resolved):
         return None
     if in_worktree(lexical) or in_worktree(resolved):
-        return {"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": REASON,
-        }}
+        return denial()
     return None
 
 

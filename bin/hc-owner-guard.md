@@ -26,6 +26,22 @@ Both paths must meet this exception when a symlink is present. Each path
 can match the lexical or resolved state root.
 It permits other paths outside worktrees and tools outside the matcher.
 
+## Private allow list
+
+The guard reads `${XDG_CONFIG_HOME:-$HOME/.config}/hc/owner-guard-allow`.
+Keep private paths in this local file. Do not add them to this repo.
+Use one absolute glob pattern per line. A leading `~/` expands to `HOME`.
+The guard removes leading and trailing whitespace. It skips blank lines,
+comment lines that start with `#`, and relative patterns.
+
+The guard uses `fnmatch` rules for each path part. `*` does not cross `/`.
+A match against either the lexical path or the resolved target permits the call.
+A missing or unreadable file adds no paths.
+
+The guard always denies owner edits to the allow file itself.
+This check includes symlink targets and runs before all path exceptions.
+A matching pattern cannot permit edits to this file, even outside worktrees.
+
 A denied call returns JSON with `hookSpecificOutput`, `hookEventName` set to
 `PreToolUse`, and `permissionDecision` set to `deny`. The reason tells the
 owner to send the change to a build worker. The exit code is zero.
