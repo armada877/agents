@@ -63,7 +63,7 @@ not standing rules.
 1. Write the goal in one sentence, in the user's words.
 2. Have the build worker make a rough version fast. Run it in
    `hc-sandbox`. Get one screenshot or one run output.
-3. Show it with `rx-show <file>`. Ask "Approve or deny?" Give the path or
+3. Use [rx-show](../../bin/rx-show.md), not `chafa`. Ask "Approve or deny?" Give the path or
    `hc-sandbox up --publish` URL.
 4. Start no review before this answer, unless the work uses real data.
 

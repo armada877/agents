@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 
 import base64
+import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+import zlib
 
 RX_SHOW = Path(__file__).resolve().with_name("rx-show")
 
@@ -16,23 +23,51 @@ exit "${FAKE_EXIT:-0}"
 """
 
 
+def png_data(width=640, height=384):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress((b"\0" + b"\xff\0\0" * width) * height))
+        + chunk(b"IEND", b"")
+    )
+
+
 REX_RECORDER = """#!/usr/bin/env python3
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 root = Path(os.environ["RECORD_DIR"])
 args = sys.argv[1:]
 (root / "rex").write_text("\\n".join(args) + "\\n")
 with (root / "rex-calls").open("a") as log:
     log.write(json.dumps(args) + "\\n")
-if args[:2] == ["block", "inspect"]:
-    print("session: session:test")
-elif args[:2] == ["block", "ls"]:
-    print(os.environ.get("FAKE_BLOCKS", '{"blocks": []}'))
-elif args[0] in ("run", "split"):
+if os.environ.get("FAKE_EXIT") == "1" or args[0] == os.environ.get("FAIL_REX"):
+    sys.exit(1)
+if args[0] in ("run", "split"):
+    if "--remove" in args:
+        result = subprocess.run(args[args.index("--") + 1:], capture_output=True)
+        (root / "kitty").write_bytes(result.stdout)
+        if result.returncode:
+            sys.exit(result.returncode)
     print("block:new")
-sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
+"""
+
+CONVERTER = """#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+root = Path(os.environ["RECORD_DIR"])
+(root / "converter").write_text("\\n".join(sys.argv[1:]))
+data = sys.stdin.buffer.read()
+(root / "converter-input").write_bytes(data)
+if data == b"bad":
+    print("bad image details", file=sys.stderr)
+    sys.exit(1)
+sys.stdout.buffer.write((root / "converted.png").read_bytes())
 """
 
 
@@ -45,14 +80,15 @@ class RxShowTests(unittest.TestCase):
         self.config = self.root / "config"
         for folder in (self.bin, self.records, self.config / "hc"):
             folder.mkdir(parents=True)
-        for name in ("rex", "fake-push"):
+        for name in ("rex", "fake-push", "magick"):
             tool = self.bin / name
-            tool.write_text(REX_RECORDER if name == "rex" else RECORDER)
+            tool.write_text({"rex": REX_RECORDER, "magick": CONVERTER}.get(name, RECORDER))
             tool.chmod(0o755)
         self.doc = self.root / "plan.md"
         self.doc.write_text("# Plan\n")
         self.image = self.root / "shot.PNG"
-        self.image.write_bytes(b"png")
+        self.image.write_bytes(png_data())
+        (self.records / "converted.png").write_bytes(png_data())
 
     def tearDown(self):
         self.temp.cleanup()
@@ -67,6 +103,7 @@ class RxShowTests(unittest.TestCase):
             "RECORD_DIR": str(self.records),
             "XDG_CONFIG_HOME": str(self.config),
             "REX_BLOCK": "",
+            "XDG_RUNTIME_DIR": str(self.root / "runtime"),
             **env,
         }
         return subprocess.run(
@@ -88,57 +125,127 @@ class RxShowTests(unittest.TestCase):
         self.assertEqual(self.recorded("fake-push"), [str(self.doc)])
         self.assertIn("sent a push", result.stderr)
 
+    def preview_state(self, caller="block:caller"):
+        key = hashlib.sha256(caller.encode()).hexdigest()
+        return self.root / "runtime" / "rx-show" / f"{key}.block"
+
+    def set_preview(self, caller="block:caller", block="block:old"):
+        state = self.preview_state(caller)
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(block + "\n")
+
+    def calls(self):
+        return [json.loads(line) for line in self.recorded("rex-calls") or []]
+
     def test_image_opens_kitty_tab_without_push(self):
         self.set_push_command("fake-push\n")
         result = self.run_show(str(self.image))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            self.recorded("rex"),
-            ["run", "--focus=false", "--keep-open", "--label", "shot.PNG preview", "--", str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
-        )
+        call = self.calls()[0]
+        self.assertEqual(call[:-1], [
+            "run", "--focus=false", "--keep-open", "--label", "shot.PNG preview",
+            "--", str(RX_SHOW.with_name("rx-show-kitty")), "--remove",
+        ])
+        self.assertFalse(Path(call[-1]).exists())
         self.assertIsNone(self.recorded("fake-push"))
         self.assertIn("only Markdown", result.stderr)
 
-    def test_image_replaces_split_in_caller_session(self):
-        blocks = {"blocks": [
-            {"label": "shot.PNG preview", "block_id": "block:old"},
-            {"label": "other", "block_id": "block:other"},
-            {"label": "shot.PNG preview", "block_id": "block:caller"},
-        ]}
-        result = self.run_show(
-            str(self.image), REX_BLOCK="block:caller", FAKE_BLOCKS=json.dumps(blocks)
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        calls = [json.loads(line) for line in self.recorded("rex-calls")]
-        self.assertEqual(calls, [
-            ["block", "inspect", "block:caller"],
-            ["block", "ls", "-s", "session:test", "--json"],
-            ["block", "close", "block:old"],
-            ["split", "-b", "block:caller", "--split=right", "--ratio", "60",
-             "--focus=false", "--keep-open", "--label", "shot.PNG preview",
-             "--", str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
+    def test_images_with_different_names_replace_callers_preview(self):
+        self.set_preview()
+        for name in ("shot.PNG", "another.jpg"):
+            source = self.root / name
+            source.write_bytes(b"image")
+            result = self.run_show(str(source), REX_BLOCK="block:caller")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("opened a split", result.stderr)
+        calls = self.calls()
+        self.assertEqual(calls[0], ["block", "close", "block:old"])
+        self.assertEqual(calls[2], ["block", "close", "block:new"])
+        self.assertEqual(calls[3][0:7], [
+            "split", "-b", "block:caller", "--split=right", "--ratio", "60", "--focus=false",
         ])
-        self.assertIn("block:new", result.stderr)
+        self.assertIn("another.jpg preview", calls[3])
+        self.assertEqual(self.preview_state().read_text(), "block:new\n")
 
-    def test_failed_lookup_does_not_open_duplicate_split(self):
+    def test_callers_do_not_close_each_others_preview(self):
+        self.set_preview("block:other", "block:unrelated")
+        result = self.run_show(str(self.image), REX_BLOCK="block:caller")
+        self.assertIn("opened a split", result.stderr)
+        self.assertEqual([call[0] for call in self.calls()], ["split"])
+        self.assertEqual(self.preview_state("block:other").read_text(), "block:unrelated\n")
+
+    def test_failed_close_preserves_state_and_stops(self):
+        self.set_preview()
+        result = self.run_show(str(self.image), REX_BLOCK="block:caller", FAIL_REX="block")
+        self.assertEqual(self.calls(), [["block", "close", "block:old"]])
+        self.assertEqual(result.stderr.splitlines(), ["rx-show: could not close the earlier preview"])
+        self.assertEqual(self.preview_state().read_text(), "block:old\n")
+        self.assertEqual(list(self.preview_state().parent.glob("image.*.png")), [])
+
+    def test_failed_split_falls_back_to_tab(self):
+        result = self.run_show(str(self.image), REX_BLOCK="block:stale", FAIL_REX="split")
+        self.assertIn("opened a tab", result.stderr)
+        self.assertEqual([call[0] for call in self.calls()], ["split", "run"])
+        self.assertEqual(self.preview_state("block:stale").read_text(), "block:new\n")
+
+    def test_failed_open_removes_temp_png(self):
         result = self.run_show(str(self.image), REX_BLOCK="block:caller", FAKE_EXIT="1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("could not find", result.stderr)
-        self.assertEqual(len(self.recorded("rex-calls")), 1)
+        self.assertEqual(result.stderr.splitlines(), ["rx-show: could not open an image preview"])
+        self.assertEqual(list(self.preview_state().parent.glob("image.*.png")), [])
+        self.assertFalse(self.preview_state().exists())
 
-    def test_kitty_chunks_preserve_png_and_use_pane_columns(self):
-        payload = bytes(range(256)) * 40
+    def test_bad_image_leaves_preview_open(self):
+        self.set_preview()
+        self.image.write_bytes(b"bad")
+        result = self.run_show(str(self.image), REX_BLOCK="block:caller")
+        self.assertEqual(result.stderr.splitlines(), ["rx-show: could not convert the image"])
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.preview_state().read_text(), "block:old\n")
+
+    def test_conversion_uses_stdin_first_frame_and_orientation(self):
+        for extension in ("png", "jpg", "jpeg", "gif", "webp"):
+            with self.subTest(extension=extension):
+                source = self.root / f"detail %d [1].{extension}"
+                source.write_bytes(b"original bytes")
+                result = self.run_show(str(source))
+                self.assertIn("opened a tab", result.stderr)
+                self.assertEqual(self.recorded("converter"), ["-[0]", "-auto-orient", "png:-"])
+                self.assertEqual((self.records / "converter-input").read_bytes(), b"original bytes")
+
+    def isolated_path(self):
+        folder = self.root / "isolated"
+        folder.mkdir()
+        for name in ("realpath", "basename", "tr", "dirname", "mkdir", "mktemp", "rm", "python3"):
+            (folder / name).symlink_to(shutil.which(name))
+        (folder / "rex").symlink_to(self.bin / "rex")
+        return folder
+
+    def test_convert_fallback(self):
+        folder = self.isolated_path()
+        (folder / "convert").symlink_to(self.bin / "magick")
+        result = self.run_show(str(self.image), PATH=str(folder))
+        self.assertIn("opened a tab", result.stderr)
+
+    def test_missing_converter_leaves_preview_open(self):
+        self.set_preview()
+        result = self.run_show(str(self.image), REX_BLOCK="block:caller", PATH=str(self.isolated_path()))
+        self.assertEqual(result.stderr.splitlines(), ["rx-show: no image converter: install ImageMagick"])
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.preview_state().read_text(), "block:old\n")
+
+    def test_kitty_chunks_preserve_png(self):
+        payload = png_data() + bytes(range(256)) * 40
         self.image.write_bytes(payload)
         result = subprocess.run(
             [str(RX_SHOW.with_name("rx-show-kitty")), str(self.image)],
-            env={**os.environ, "COLUMNS": "123"}, capture_output=True,
+            env={**os.environ, "COLUMNS": "999"}, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         packets = result.stdout.rstrip(b"\n").split(b"\x1b\\")[:-1]
         encoded = []
         for index, packet in enumerate(packets):
             header, part = packet.split(b";", 1)
-            prefix = b"\x1b_Gf=100,a=T,c=123," if index == 0 else b"\x1b_G"
+            prefix = b"\x1b_Gf=100,a=T,c=80,r=24," if index == 0 else b"\x1b_G"
             more = int(index < len(packets) - 1)
             self.assertEqual(header, prefix + f"m={more}".encode())
             self.assertLessEqual(len(part), 4096)
@@ -147,17 +254,17 @@ class RxShowTests(unittest.TestCase):
             encoded.append(part)
         self.assertEqual(base64.b64decode(b"".join(encoded)), payload)
 
-    def test_kitty_converts_other_formats_to_png(self):
-        for extension in ("jpg", "jpeg", "gif", "webp"):
-            with self.subTest(extension=extension):
-                source = self.root / f"detail.{extension}"
-                subprocess.run(["magick", "-size", "16x16", "xc:red", str(source)], check=True)
-                result = subprocess.run(
-                    [str(RX_SHOW.with_name("rx-show-kitty")), str(source)], capture_output=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                part = result.stdout.split(b";", 1)[1].split(b"\x1b\\", 1)[0]
-                self.assertTrue(base64.b64decode(part).startswith(b"\x89PNG\r\n\x1a\n"))
+    def test_kitty_uses_terminal_pixels_and_fits_images(self):
+        loader = importlib.machinery.SourceFileLoader("kitty", str(RX_SHOW.with_name("rx-show-kitty")))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        with patch.object(module.fcntl, "ioctl", return_value=struct.pack("HHHH", 30, 100, 1000, 600)):
+            with patch.dict(os.environ, {"COLUMNS": "999"}):
+                pane = module.pane_size()
+        self.assertEqual(pane, (30, 100, 1000, 600))
+        self.assertEqual(module.image_cells(png_data(100, 100), pane), (10, 5))
+        self.assertEqual(module.image_cells(png_data(100, 1200), pane), (5, 30))
+        self.assertEqual(module.image_cells(png_data(2000, 400), pane), (100, 10))
 
     def test_missing_push_config_still_opens_window(self):
         result = self.run_show(str(self.doc))

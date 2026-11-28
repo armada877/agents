@@ -32,42 +32,78 @@ viewer() {
   fi
 }
 
-open_window() {
-  local label="rx-show · $file_name"
-  local -a view command
-  local session old_blocks old opened
-  if is_image; then
-    label="$file_name preview"
-    view=("$(dirname "$(realpath "$0")")/rx-show-kitty")
-  else
-    read -ra view <<<"$(viewer)"
+open_image() (
+  umask 077
+  local runtime="${XDG_RUNTIME_DIR:-/tmp}/rx-show"
+  local converter image_file="" state_file old_block new_block lock_key
+  local label="$file_name preview"
+  local helper="$(dirname "$(realpath "$0")")/rx-show-kitty"
+  local opened=tab
+  trap '[[ -z $image_file ]] || rm -f -- "$image_file"' EXIT
+  if ! converter="$(command -v magick || command -v convert)"; then
+    echo "rx-show: no image converter: install ImageMagick" >&2
+    return 1
   fi
-  if is_image && [[ -n ${REX_BLOCK:-} ]]; then
-    if ! session="$(rex block inspect "$REX_BLOCK" | awk '/^session:/ {print $2}')" || [[ -z $session ]]; then
-      echo "rx-show: could not find the caller session" >&2
-      return 0
-    fi
-    if ! old_blocks="$(rex block ls -s "$session" --json | jq -r --arg label "$label" --arg anchor "$REX_BLOCK" '.blocks[] | select(.label == $label and .block_id != $anchor) | .block_id')"; then
-      echo "rx-show: could not find earlier splits" >&2
-      return 0
-    fi
-    while IFS= read -r old; do
-      [[ -n $old ]] || continue
-      if ! rex block close "$old" >/dev/null; then
-        echo "rx-show: could not close an earlier split" >&2
-        return 0
+  if ! mkdir -p -m 700 -- "$runtime" 2>/dev/null || [[ -L $runtime || ! -O $runtime ]]; then
+    echo "rx-show: could not use the preview directory" >&2
+    return 1
+  fi
+  if ! image_file="$(mktemp "$runtime/image.XXXXXXXX.png")"; then
+    echo "rx-show: could not prepare the image" >&2
+    return 1
+  fi
+  if ! "$converter" '-[0]' -auto-orient png:- < "$source_file" > "$image_file" 2>/dev/null || [[ ! -s $image_file ]]; then
+    echo "rx-show: could not convert the image" >&2
+    return 1
+  fi
+  if [[ -n ${REX_BLOCK:-} ]]; then
+    lock_key="$(printf '%s' "$REX_BLOCK" | sha256sum)"
+    state_file="$runtime/${lock_key%% *}.block"
+    exec 9>"$state_file.lock"
+    flock 9
+    if [[ -r $state_file ]]; then
+      read -r old_block < "$state_file" || old_block=""
+      if [[ -n $old_block && $old_block != "$REX_BLOCK" ]]; then
+        if ! rex block close "$old_block" >/dev/null 2>&1; then
+          echo "rx-show: could not close the earlier preview" >&2
+          return 1
+        fi
       fi
-    done <<<"$old_blocks"
-    command=(rex split -b "$REX_BLOCK" --split=right --ratio 60)
-    opened=split
+      rm -f -- "$state_file"
+    fi
+    if new_block="$(rex split -b "$REX_BLOCK" --split=right --ratio 60 --focus=false --keep-open --label "$label" -- "$helper" --remove "$image_file" 2>/dev/null)"; then
+      opened=split
+    else
+      new_block=""
+    fi
   else
-    command=(rex run)
-    opened=tab
+    new_block=""
   fi
-  if old="$("${command[@]}" --focus=false --keep-open --label "$label" -- "${view[@]}" "$source_file")"; then
-    echo "rx-show: opened a $opened: $label ($old)" >&2
+  if [[ -z $new_block ]]; then
+    if ! new_block="$(rex run --focus=false --keep-open --label "$label" -- "$helper" --remove "$image_file" 2>/dev/null)"; then
+      echo "rx-show: could not open an image preview" >&2
+      return 1
+    fi
+  fi
+  image_file=""
+  if [[ -n ${state_file:-} ]]; then
+    printf '%s\n' "$new_block" > "$state_file"
+  fi
+  echo "rx-show: opened a $opened: $label ($new_block)" >&2
+)
+
+open_window() {
+  if is_image; then
+    open_image
+    return $?
+  fi
+  local label="rx-show · $file_name"
+  local -a view
+  read -ra view <<<"$(viewer)"
+  if rex run --focus=false --keep-open --label "$label" -- "${view[@]}" "$source_file" >/dev/null; then
+    echo "rx-show: opened a tab: $label" >&2
   else
-    echo "rx-show: could not open a $opened" >&2
+    echo "rx-show: could not open a tab" >&2
   fi
 }
 
@@ -93,5 +129,7 @@ send_push() {
   fi
 }
 
-[[ ${RX_SHOW_WINDOW:-1} == 0 ]] || open_window
+if [[ ${RX_SHOW_WINDOW:-1} != 0 ]] && ! open_window; then
+  exit 0
+fi
 [[ ${RX_SHOW_PUSH:-1} == 0 ]] || send_push

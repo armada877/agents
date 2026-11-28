@@ -1,25 +1,59 @@
 #!/usr/bin/env python3
 
 import base64
+import fcntl
+import math
+import os
 from pathlib import Path
-import shutil
-import subprocess
+import struct
 import sys
+import termios
 
 
-def show(path):
-    if path.suffix.lower() == ".png":
+def pane_size():
+    try:
+        rows, columns, width, height = struct.unpack(
+            "HHHH", fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, bytes(8))
+        )
+        if rows and columns:
+            return rows, columns, width, height
+    except OSError:
+        pass
+    try:
+        columns, rows = os.get_terminal_size(sys.stdout.fileno())
+    except OSError:
+        columns, rows = 80, 24
+    return rows, columns, 0, 0
+
+
+def image_cells(data, pane):
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        raise ValueError("invalid PNG")
+    width, height = struct.unpack(">II", data[16:24])
+    if not width or not height:
+        raise ValueError("invalid PNG size")
+    rows, columns, pixels_wide, pixels_high = pane
+    cell_width = pixels_wide / columns if pixels_wide >= columns else 8
+    cell_height = pixels_high / rows if pixels_high >= rows else 16
+    scale = min(1, columns * cell_width / width, rows * cell_height / height)
+    return (
+        max(1, math.floor(width * scale / cell_width)),
+        max(1, math.floor(height * scale / cell_height)),
+    )
+
+
+def show(path, remove=False):
+    try:
         data = path.read_bytes()
-    else:
-        data = subprocess.run(
-            ["magick", f"{path}[0]", "png:-"], check=True, stdout=subprocess.PIPE
-        ).stdout
+    finally:
+        if remove:
+            path.unlink(missing_ok=True)
+    columns, rows = image_cells(data, pane_size())
     payload = base64.standard_b64encode(data)
-    columns = shutil.get_terminal_size().columns
     for start in range(0, len(payload), 4096):
         part = payload[start:start + 4096]
         more = int(start + 4096 < len(payload))
-        keys = f"f=100,a=T,c={columns}," if start == 0 else ""
+        keys = f"f=100,a=T,c={columns},r={rows}," if start == 0 else ""
         sys.stdout.buffer.write(
             b"\x1b_G" + f"{keys}m={more}".encode() + b";" + part + b"\x1b\\"
         )
@@ -28,6 +62,13 @@ def show(path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("Usage: rx-show-kitty <image>")
-    show(Path(sys.argv[1]).resolve())
+    args = sys.argv[1:]
+    remove = args[:1] == ["--remove"]
+    if remove:
+        args = args[1:]
+    if len(args) != 1:
+        sys.exit("Usage: rx-show-kitty [--remove] <PNG>")
+    try:
+        show(Path(args[0]), remove)
+    except (OSError, ValueError, struct.error):
+        sys.exit("rx-show-kitty: could not display the PNG")

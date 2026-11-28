@@ -9,25 +9,39 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
    - A Markdown file opens in a new tab with `glow -t`.
    - An image (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) opens in a right split beside `$REX_BLOCK`.
      The split takes 60 percent of the space. Its label is `<file name> preview`.
-     An earlier block with that label in the caller's session closes first. The caller stays open.
-     Without `REX_BLOCK`, the image opens in a new tab with `rex run`.
+     The caller's recorded preview closes first, even when the file name changes. Other callers keep their previews.
+     Without `REX_BLOCK`, or when the split fails, the image opens in a new tab with `rex run`.
    - Other files open in a new tab with `less`.
 2. For a Markdown file, it runs the push command. The push command sends
    the doc to the user's phone.
 
-`rx-show-kitty` sends images with the Kitty graphics protocol.
-It sends PNG bytes with `f=100,a=T,c=<columns>` in chunks of 4096 base64 bytes.
-The last chunk can be shorter. The helper reads its own terminal width in cells inside the split.
-PNG files pass through directly. ImageMagick converts other formats to PNG.
-For animated files, the helper shows the first frame.
-Install `python3`, `magick`, and `jq` on the machine that runs Rex.
-The terminal must support Kitty graphics.
+`rx-show` converts the image to a temporary PNG before it closes or opens any block.
+It reads the source bytes through stdin, selects the first frame, and applies EXIF orientation.
+It uses `magick`, or `convert` when `magick` is absent.
+A bad image or missing converter prints one error line and leaves the current preview open.
+
+`rx-show-kitty` sends the PNG with the Kitty graphics protocol.
+It sends `f=100,a=T,c=<columns>,r=<rows>` in chunks of 4096 base64 bytes.
+The last chunk can be shorter.
+The helper reads its terminal cell and pixel dimensions with `TIOCGWINSZ`. It ignores `COLUMNS` and `LINES`.
+It fits the image within the pane and limits enlargement to whole cells.
+When pixel dimensions are absent, it assumes cells of 8 × 16 pixels.
+The helper removes the temporary PNG after it reads the bytes.
+
+Install `python3`, ImageMagick, and `flock` where `rx-show` runs.
+The Rex terminal must access the helper and temporary PNG. It must support Kitty graphics.
+
+Each caller has a file under `${XDG_RUNTIME_DIR:-/tmp}/rx-show/` that records its preview block ID.
+The file name uses a hash of `REX_BLOCK`. A lock serializes previews from the same caller.
+Labels remain `<file name> preview`; labels do not control which block closes.
+A failed close prints one error line and leaves the recorded ID unchanged.
+If you close a preview yourself, remove its record before the next preview.
 
 A successful open prints the block ID to stderr.
-
-A failed viewer or a failed push prints one line to stderr. It does not stop
-the other step. `rx-show` exits 0 after it starts. It exits 1 for a missing
-file.
+This confirms block creation. It does not confirm that the terminal rendered the image.
+A failed conversion, open, or push prints an error to stderr.
+A failed Markdown tab does not stop its push.
+`rx-show` exits 0 after it starts. It exits 1 for a missing file.
 
 ## Image previews
 
@@ -55,4 +69,4 @@ the page link in the `Click` header.
 
 ## Checks
 
-Run `bin/test-rx-show`. The tests put a fake `rex` on `PATH`.
+Run `bin/test-rx-show`. The tests put fake `rex` and `magick` commands on `PATH`. They need no ImageMagick installation.

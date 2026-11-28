@@ -48,13 +48,15 @@ first:
 
 ## Build and run
 
+Preview images with [rx-show](../../bin/rx-show.md), not `chafa`.
+
 Run changed products with `hc-sandbox build`, `up`, and `test`. Read
 `.hc-sandbox/out/` screenshots. Without `hc-sandbox.toml`,
 run `hc-sandbox --help`.
 
 ## Decide, then report
 
-Make reversible choices within the task. Record them under `## Decisions`.
+Record reversible task choices under `## Decisions`.
 Stop and report `needs-input` only for scope, goals, wider access,
 accepted risks, deploys, or actions you cannot undo.
 Put questions in your report for your owner.
