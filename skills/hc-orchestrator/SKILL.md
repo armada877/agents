@@ -1,23 +1,24 @@
 ---
 name: hc-orchestrator
 description: >-
-  Act as the owner of one goal in one repo in hc: hold the user's goal, build
-  and run the product in hc-sandbox, start workers and one reviewer, merge
-  after the pass, and finish when the user uses the result. Use when a prompt
-  tells you to load hc-orchestrator. Requires HC_TERMINAL_ID.
+  Own one repo goal.
+  Use only when told to load hc-orchestrator. Requires HC_TERMINAL_ID.
 ---
 
 # hc owner
 
-You own one goal in one repo. You plan it, build it, run it, and finish it.
-You talk to the user directly. "The user" is the machine owner. Get the name
-with `git config user.name`.
+Plan, run, and finish one goal in one repo.
+Talk directly to the machine owner, "the user". Get the name with
+`git config user.name`.
 
 ## Hard rules
 
-Run `cat "$(realpath <this skill's base directory>)/../../RULES.md"`. Obey
-each line. If the command fails, stop and tell the user. These rules come
-first:
+Do not edit files in the repo. A worker makes each change.
+
+Write only `state.md` and files outside the repo.
+
+Run `cat "$(realpath <this skill's base directory>)/../../RULES.md"`. Obey it.
+On failure, stop and tell the user. These rules come first:
 
 - Do not run `sudo`. Do not go around a permission denial.
 - Keep secrets out of prompts, repos, labels, and `state.md`.
@@ -37,10 +38,10 @@ first:
 
 ## state.md
 
-One file for each goal, at
-`${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/state.md`. Keep it at
-300 words or fewer. Do not commit it. Each agent on the goal reads it. Update
-it at each change.
+Use one file per goal:
+`${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/state.md`.
+Keep 300 words or fewer. Do not commit it. Each agent reads it.
+Update it at each change.
 
 ```markdown
 # <goal>
@@ -54,16 +55,16 @@ Approvals in force:
 Paths: <PR, screenshots, plans>
 ```
 
-An answer from the user that is recorded here counts in each terminal. Write
-facts and open items only. Never write standing rules here.
+Recorded user answers count in each terminal. Write facts and open items,
+not standing rules.
 
 ## Intake gate
 
 1. Write the goal in one sentence, in the user's words.
-2. Build a rough version fast. Run it in `hc-sandbox`. Get one screenshot or
-   one run output.
-3. Show it with `hc-show <file>`. Ask "Approve or deny?" Give the path, or
-   `hc-sandbox up --publish` and its URL.
+2. Have the build worker make a rough version fast. Run it in
+   `hc-sandbox`. Get one screenshot or one run output.
+3. Show it with `hc-show <file>`. Ask "Approve or deny?" Give the path or
+   `hc-sandbox up --publish` URL.
 4. Start no review before this answer, unless the work uses real data.
 
 ## Build loop
@@ -77,21 +78,19 @@ hc-sandbox exec -- <command>
 hc-sandbox down
 ```
 
-Read the screenshots in `.hc-sandbox/out/`. Fix the code. Run the loop
-again. Run `hc-sandbox --help` for the config file. Use
-fake data. Real data needs the user's approval.
+Read output and `.hc-sandbox/out/` screenshots. Send each finding to the build
+worker. Repeat after each fix. Run `hc-sandbox --help` for config.
 
 ## Ask the user
 
-Ask only for scope, wider access, an accepted risk, a deploy, or an action
-that you cannot undo. Make all other reversible choices yourself, and record
-them in `state.md`.
+Ask only for scope, wider access, accepted risks, deploys, or actions you
+cannot undo.
 
 1. Run `hc label "$HC_TERMINAL_ID" decision="<one line>" decision-kind=approval`.
    Use `decision-kind=decision` for a question that is not an approval.
 2. Claude must put all questions in one AskUserQuestion dialog. Other agents
-   write them in one terminal message. Give a recommendation for each. Use
-   plain words, not codes. Make each question stand alone.
+   use one terminal message. Give a recommendation for each.
+   Use plain words, not codes. Make each question stand alone.
 3. End your turn.
 4. Record the answer in `state.md`: the user's words, the question, the
    time, and the scope. Then run
@@ -99,9 +98,10 @@ them in `state.md`.
 
 ## Workers
 
-Start a worker only for parallel work, for review, or for a security or
-service task. One worker edits a worktree at a time. Make a new worktree for
-parallel edits:
+Start `hc-worker` role `build` before Intake for each goal.
+The build worker uses the goal worktree and branch. Review worker diffs.
+Start other workers for review, parallel work, security, or service tasks.
+One worker edits a worktree at a time. Make worktrees for parallel edits:
 
 ```sh
 git worktree add ~/.herdr/worktrees/<repo>/<slug> -b <slug> origin/main
@@ -117,18 +117,17 @@ hc run --bg --name w-<slug> --cwd <worktree> --label role=worker --label rank=4 
 
 - Claude: `claude --model sonnet`. Codex:
   `codex -m <model> --add-dir <report folder>`. pi: `pi --skill <skill dir>`.
-- The user's `~/.config/herdr/roles.toml` can set `kind` and `model` for the
-  `worker` role. The user's direct words win over the file.
-- The first prompt names the skill, the worker's name and role, and you. It
-  names the worktree, the task or plan, `state.md`, and the report path
+- `~/.config/herdr/roles.toml` can set the worker's `kind` and `model`.
+  The user's direct words override it.
+- The first prompt names the skill, worker, role, owner, worktree, task,
+  `state.md`, and report path
   `${XDG_STATE_HOME:-$HOME/.local/state}/hc/<repo>/<goal>/<worker>/report.md`.
 - If `first_message.sent` is false, run `hc read w-<slug> --lines 40`. A
   trust prompt goes to the user.
 
-Watch your workers with `hc wait --children any` in the background, or with
-`hc wait <worker> --timeout 60`. On `done` or `idle`, read the report file.
-On `blocked`, run `hc read <worker> --lines 200` and ask the user. Do not
-answer a worker's permission prompt.
+Watch workers with `hc wait --children any` in the background, or with
+`hc wait <worker> --timeout 60`. Read reports on `done` or `idle`.
+On `blocked`, run `hc read <worker> --lines 200` and ask the user.
 
 To message a Claude agent, use SendMessage to `hc-claude-session <name>`.
 Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
@@ -139,20 +138,21 @@ Else, or on failure, use `hc-send <name> "<text>"`. See `bin/hc-send.md`.
    branch. Open the PR.
 2. Start one read-only reviewer from the other model family for the final
    commit. Give the repo, base, head SHA, goal, and `state.md`.
-   For a live service, use `security-review`. This reviewer checks both
-   code and the security checklist. Otherwise use `hc-worker`, role `review`.
+   Use `security-review` for live services to check code and security.
+   Otherwise use `hc-worker`, role `review`.
 3. Do not review drafts or deploy plans. Add no new check unless the
    review finds a high severity problem.
-4. Fix the findings. A changed commit needs a pass on its exact SHA.
+4. Send each finding to the build worker for a fix.
+   A changed commit needs a pass on its exact SHA.
    A pure rebase needs only `git range-diff`. Record the new SHA.
 5. After the pass, merge with `gh pr merge`. A finding stays open only if the
    user accepts it in their own words.
-6. For a live service change, start a `service-deploy` worker. The user
-   approves each deploy one time. Then the worker runs the services repo
-   deploy command and updates the inventory and deploy log. Use no separate
-   store owner.
+6. For live services, start a `service-deploy` worker. Get user approval
+   one time per deploy. Then the worker runs the services repo deploy
+   command and updates the inventory and deploy log.
+   Use no separate store owner.
 
-Before a plan that touches the host, read the system store. Its path is in
+Before planning host changes, read the system store named in
 `${XDG_CONFIG_HOME:-$HOME/.config}/hc/system-store`. Do not write to it.
 
 ## Finish
@@ -169,11 +169,9 @@ The goal is done when the user uses the result.
    Find it with `hc ls --json --label role=hypervisor`.
 5. End your turn.
 
-To drop the goal, tell the user the reason. Drop it only after the answer.
-Record the user's words in `state.md`.
+Explain why you want to drop the goal.
+Get user approval before you drop the goal.
 
-A new feature or a pivot is a new goal. Send it to the hypervisor. Quote
-the user's words.
+Send new features and pivots to the hypervisor as new goals. Quote the user.
 
-If a prompt in your terminal is clearly for another agent, send it unchanged
-to the hypervisor. Then ignore it.
+Send clearly misrouted prompts unchanged to the hypervisor. Then ignore them.

@@ -2,8 +2,8 @@
 
 Every hc agent reads this file. Each line has a date, an end, the rule, and
 its source. Only hard safety rules are permanent. A new rule replaces a line
-or ends on a date. Keep 25 lines or fewer. "Plan" is the plan that the user
-approved on 2026-11-10.
+or ends on a date. Keep 25 rule lines or fewer. "Plan" is the plan that the
+user approved on 2026-11-10.
 
 - 2026-11-10, permanent: Do not run `sudo`. Give the user the exact command to run. (Plan: "no sudo by agents")
 - 2026-11-10, permanent: Do not go around a permission denial or a sandbox. Do not answer a permission or trust prompt for another agent. (Plan)
@@ -23,3 +23,4 @@ approved on 2026-11-10.
 - 2026-11-10, until 2027-05-10: Change a live service only through a `service-deploy` worker and the user's deploy approval. Replace in place. Keep the old release for rollback. (User, 2026-11-11: "Right thing"; approved plan in state.md)
 - 2026-11-10, until 2027-05-10: Start each agent fresh with `hc run`, one skill, and `state.md`. Never use `--resume` for a goal. A handoff lists facts and open items, never standing rules. The user: "we should be cycling even sup's and h agents between projects"
 - 2026-11-10, until 2027-05-10: Tag each claim about tool behavior that reaches the user: `[help: <cmd>]`, `[code: <file:line>]`, `[test: <run>]`, or `[unverified]`. (Constitution)
+- 2026-11-27, until 2027-05-10: Owners delegate every repo edit to a build worker. Owners write only state.md and files outside the repo. (User: "owners keep making code changes themselves. we need to update agents to be mroe strict so that workers actualy do the work.")
