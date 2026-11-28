@@ -1,0 +1,691 @@
+#!/usr/bin/env python3
+
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rx_state
+
+
+NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+PLACEHOLDER = re.compile(r'^(?:Try "|(?:Ask Codex to do anything|Ask a follow-up question)$)')
+STOPPED = ("idle", "done", "blocked", "error")
+NEWS = ("blocked", "error")
+TURN_STARTED = ("working", "done", "blocked", "error")
+FIRST_TURN_GRACE = 90
+WATCH_INTERVAL = 2
+WATCH_IDLE_EXIT = 1800
+EXIT_CODES = {"usage": 2, "not_found": 3, "needs_target": 7, "blocked": 9, "name_taken": 10,
+              "finished": 11, "live": 12, "timeout": 124, "rex": 1}
+
+
+class RxError(Exception):
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def age_seconds(stamp):
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(stamp)).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def rex(*args, check=True, timeout=20):
+    try:
+        result = subprocess.run(["rex", *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RxError("rex", f"rex {args[0]}: {error}") from None
+    if check and result.returncode:
+        raise RxError("rex", f"rex {' '.join(args[:2])}: {result.stderr.strip() or result.returncode}")
+    return result
+
+
+def rex_json(*args):
+    try:
+        return json.loads(rex(*args).stdout)
+    except ValueError:
+        raise RxError("rex", f"rex {' '.join(args[:2])}: invalid JSON") from None
+
+
+def api(session_id, method, payload):
+    return rex_json("api", "call", "-s", session_id, method, json.dumps(payload))
+
+
+def me():
+    return os.environ.get("REX_BLOCK") or ""
+
+
+def sessions():
+    return [item["session_id"] for item in rex_json("ls", "--json").get("sessions") or []]
+
+
+def session_of(block_id):
+    for session_id in sessions():
+        listing = rex_json("block", "ls", "-s", session_id, "--json")
+        if any(item.get("block_id") == block_id for item in listing.get("blocks") or []):
+            return session_id
+    return None
+
+
+def caller_session():
+    record = rx_state.read_record(me()) if me() else None
+    if record and record.get("session_id"):
+        return record["session_id"]
+    found = session_of(me()) if me() else None
+    if not found:
+        raise RxError("needs_target", "no Rex session: pass --session or --new-session")
+    return found
+
+
+def is_live(record):
+    return record.get("state", "live") == "live"
+
+
+def live_records():
+    return [record for record in rx_state.records() if is_live(record)]
+
+
+def resolve(target):
+    target = target or me()
+    if not target:
+        raise RxError("needs_target", "give a terminal name or block ID")
+    if target == "me":
+        target = me()
+    if rx_state.block_key(target) and target.startswith("block:"):
+        record = rx_state.read_record(target)
+        if record:
+            return record
+        session_id = session_of(target)
+        if not session_id:
+            raise RxError("not_found", f"no block {target}")
+        return {"block_id": target, "session_id": session_id, "name": "", "labels": {}, "state": "live"}
+    named = [record for record in rx_state.records() if record.get("name") == target]
+    named.sort(key=lambda record: (is_live(record), record.get("created_at", "")))
+    if not named:
+        raise RxError("not_found", f"no terminal named {target}")
+    return named[-1]
+
+
+def root_status(payload):
+    for item in payload.get("records") or []:
+        if isinstance(item, dict) and "id" not in item:
+            return item
+    return None
+
+
+def observe(record):
+    session_id, block_id = record["session_id"], record["block_id"]
+    process = rex("block", "call", "-s", session_id, "-b", block_id, "process", check=False)
+    if process.returncode:
+        moved = session_of(block_id)
+        if not moved:
+            return {"exists": False, "status": None, "last_exit": None, "foreground": None}
+        record["session_id"] = session_id = moved
+        process = rex("block", "call", "-s", session_id, "-b", block_id, "process")
+    info = json.loads(process.stdout or "{}")
+    status = rex("block", "call", "-s", session_id, "-b", block_id, "program_status", check=False)
+    root = root_status(json.loads(status.stdout or "{}")) if status.returncode == 0 else None
+    if record.get("fresh") and (root or {}).get("state") in TURN_STARTED:
+        record["fresh"] = False
+        if rx_state.read_record(block_id):
+            rx_state.write_record(record)
+    return {"exists": True, "status": root, "last_exit": info.get("last_exit"),
+            "foreground": info.get("foreground")}
+
+
+def state_of(observation):
+    status = observation.get("status") or {}
+    return status.get("state")
+
+
+def first_turn_pending(record, _observation=None):
+    return bool(record.get("fresh")) and age_seconds(record.get("created_at")) < FIRST_TURN_GRACE
+
+
+def busy(record, observation):
+    if not observation["exists"] or observation.get("last_exit"):
+        return False
+    if first_turn_pending(record, observation):
+        return True
+    return state_of(observation) == "working"
+
+
+def finish(record, exit_info=None):
+    if not rx_state.read_record(record["block_id"]):
+        return
+    record["state"] = "finished"
+    record["finished_at"] = now()
+    if exit_info:
+        record["exit"] = exit_info
+    rx_state.write_record(record)
+    if record.get("own_session"):
+        close_empty_session(record["session_id"])
+
+
+def close_empty_session(session_id):
+    listing = rex("block", "ls", "-s", session_id, "--json", check=False)
+    if listing.returncode:
+        return
+    try:
+        blocks = json.loads(listing.stdout).get("blocks") or []
+    except ValueError:
+        return
+    if not blocks:
+        rex("kill", session_id, check=False)
+
+
+def input_is_empty(screen):
+    for line in reversed(screen.splitlines()):
+        if line.startswith(("›", "❯")):
+            rest = line[1:].strip()
+            return not rest or bool(PLACEHOLDER.match(rest))
+    return False
+
+
+def capture(record):
+    result = rex("block", "capture", "-s", record["session_id"], "-b", record["block_id"], "--trim", check=False)
+    if result.returncode:
+        raise RxError("not_found", f"{label(record)} is gone")
+    return result.stdout
+
+
+def label(record):
+    return record.get("name") or record["block_id"]
+
+
+def ready(record):
+    observation = observe(record)
+    if not observation["exists"]:
+        raise RxError("finished", f"{label(record)} is gone")
+    state = state_of(observation)
+    if state is None and not first_turn_pending(record, observation):
+        return True, observation
+    return state in ("idle", "done") and input_is_empty(capture(record)), observation
+
+
+def sender_name():
+    record = rx_state.read_record(me()) if me() else None
+    if record and record.get("name"):
+        return record["name"]
+    return me() or "rx"
+
+
+def tagged(record, text, raw):
+    if raw:
+        return text
+    sender = sender_name()
+    reach = ""
+    if me() and record.get("parent") == me():
+        reach = f' reach="rx send {sender} when done or stuck"'
+    return f'<rx from="{sender}"{reach}>{text}</rx>'
+
+
+def deliver(record, text):
+    payload = {"session_id": record["session_id"], "block_id": record["block_id"],
+               "event": {"type": "paste", "payload": {"text": text}}}
+    api(record["session_id"], "block.event", payload)
+    time.sleep(0.3)
+    rex("block", "send-key", "-s", record["session_id"], "-b", record["block_id"], "enter")
+
+
+def send_when_ready(record, text, force, timeout, interval):
+    deadline = time.monotonic() + timeout
+    previous = False
+    while True:
+        is_ready, observation = ready(record)
+        if state_of(observation) == "blocked" and not force:
+            raise RxError("blocked", f"{label(record)} is blocked: read it, then ask the user")
+        if force or (is_ready and (previous or state_of(observation) is None)):
+            deliver(record, text)
+            return
+        if time.monotonic() >= deadline:
+            raise RxError("timeout", f"{label(record)} not ready ({state_of(observation)})")
+        previous = is_ready
+        time.sleep(min(interval, max(0, deadline - time.monotonic())))
+
+
+def print_json(value):
+    print(json.dumps(value, indent=None if not sys.stdout.isatty() else 2))
+
+
+def parse_labels(pairs):
+    labels = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise RxError("usage", f"label must be key=value: {pair}")
+        labels[key] = value
+    return labels
+
+
+def ensure_watcher():
+    if os.environ.get("RX_NO_WATCH") == "1":
+        return
+    lock = rx_state.state_home() / "rx" / "watch.lock"
+    lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with lock.open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return
+        fcntl.flock(stream, fcntl.LOCK_UN)
+    log = (rx_state.state_home() / "rx" / "watch.log").open("a")
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "watch"], stdin=subprocess.DEVNULL,
+                     stdout=log, stderr=log, start_new_session=True)
+
+
+def command_run(args):
+    if not NAME.match(args.name):
+        raise RxError("usage", "name: lowercase letters, digits, . _ -; 32 characters or fewer")
+    if any(record.get("name") == args.name for record in live_records()):
+        raise RxError("name_taken", f"a live terminal is named {args.name}")
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        raise RxError("usage", "give a command after --")
+    if len(command) == 1 and " " in command[0]:
+        command = ["sh", "-c", command[0]]
+    labels = parse_labels(args.label)
+    cwd = str(Path(args.cwd or os.getcwd()).expanduser().resolve())
+    environment = ["env", f"RX_NAME={args.name}", f"RX_PARENT={me()}", f"RX_ROLE={labels.get('role', '')}"]
+    if args.new_session:
+        created = rex_json("new", args.name, "--window", args.name, "-c", cwd, "--json", "--", *environment, *command)
+        session_id = created["session_id"]
+        window = created["initial_windows"][0]
+        block_id, window_id = window["block_ids"][0], window["window_id"]
+        api(session_id, "session.set_block_label", {"session_id": session_id, "block_id": block_id, "label": args.name})
+    else:
+        session_id = args.session or caller_session()
+        created = rex_json("run", "-s", session_id, "--label", args.name, "-c", cwd, f"--focus={str(args.focus).lower()}",
+                           "--json", "--", *environment, *command)
+        block_id, window_id = created["block_ids"][0], created.get("window_id")
+        if window_id:
+            api(session_id, "session.set_window_label", {"session_id": session_id, "window_id": window_id, "label": args.name})
+    record = {"block_id": block_id, "session_id": session_id, "window_id": window_id, "name": args.name,
+              "labels": labels, "parent": me(), "outlive_parent": args.outlive_parent, "notify": not args.no_notify,
+              "own_session": args.new_session,
+              "cwd": cwd, "program": command[0], "created_at": now(), "fresh": True, "state": "live"}
+    rx_state.write_record(record)
+    ensure_watcher()
+    print_json({"name": args.name, "block_id": block_id, "session_id": session_id, "window_id": window_id})
+    return 0
+
+
+def summary(record, observation=None):
+    item = {key: record.get(key) for key in ("name", "block_id", "session_id", "parent", "labels", "cwd", "state", "created_at")}
+    if observation is not None:
+        item["status"] = observation.get("status")
+        item["last_exit"] = observation.get("last_exit")
+        item["foreground"] = observation.get("foreground")
+    if record.get("exit"):
+        item["exit"] = record["exit"]
+    return item
+
+
+def matches(record, wanted):
+    labels = record.get("labels") or {}
+    return all(labels.get(key) == value for key, value in wanted.items())
+
+
+def command_ls(args):
+    wanted = parse_labels(args.label)
+    items = []
+    for record in rx_state.records():
+        if not matches(record, wanted):
+            continue
+        observation = observe(record) if is_live(record) else None
+        if observation is not None and not observation["exists"]:
+            finish(record)
+            observation = None
+        if is_live(record) or args.all:
+            items.append(summary(record, observation))
+    print_json({"terminals": items})
+    return 0
+
+
+def command_get(args):
+    record = resolve(args.target)
+    observation = observe(record) if is_live(record) else None
+    if observation is not None and not observation["exists"]:
+        finish(record)
+    print_json(summary(record, observation))
+    return 0
+
+
+def command_read(args):
+    text = capture(resolve(args.target))
+    lines = text.splitlines()
+    if args.lines:
+        lines = lines[-args.lines:]
+    print("\n".join(lines))
+    return 0
+
+
+def command_send(args):
+    record = resolve(args.target)
+    send_when_ready(record, tagged(record, args.text, args.raw), args.force, args.timeout, args.interval)
+    return 0
+
+
+def command_keys(args):
+    record = resolve(args.target)
+    for key in args.keys:
+        rex("block", "send-key", "-s", record["session_id"], "-b", record["block_id"], key)
+    return 0
+
+
+def outcome(record, observation, reason):
+    return {"name": label(record), "reason": reason, "status": state_of(observation),
+            "last_exit": observation.get("last_exit"), "exists": observation["exists"]}
+
+
+def wait_one(record, args):
+    deadline = time.monotonic() + args.timeout
+    baseline = capture(record).count(args.output) if args.output else 0
+    while True:
+        observation = observe(record)
+        if not observation["exists"] or observation.get("last_exit"):
+            return outcome(record, observation, "exit"), 0
+        if args.output:
+            if capture(record).count(args.output) > baseline:
+                return outcome(record, observation, "output"), 0
+        elif state_of(observation) in STOPPED and not first_turn_pending(record, observation):
+            return outcome(record, observation, "status"), 0
+        if time.monotonic() >= deadline:
+            return outcome(record, observation, "timeout"), EXIT_CODES["timeout"]
+        time.sleep(args.interval)
+
+
+def children_of(block_id):
+    return [record for record in live_records() if record.get("parent") == block_id]
+
+
+def wait_children(args):
+    children = children_of(me())
+    if not children:
+        return {"reason": "no_children", "children": []}, 0
+    deadline = time.monotonic() + args.timeout
+    watched = None
+    while True:
+        observed = [(record, observe(record)) for record in children]
+        working = {record["block_id"] for record, observation in observed if busy(record, observation)}
+        news = [outcome(record, observation, "status") for record, observation in observed
+                if state_of(observation) in NEWS or not observation["exists"]]
+        report = [outcome(record, observation, "status") for record, observation in observed]
+        if args.children == "all" and not working:
+            return {"reason": "stopped", "children": report}, 0
+        if args.children == "any":
+            if watched is None:
+                watched = working
+                if not watched:
+                    return {"reason": "none_working", "children": report}, 0
+            if news or watched - working:
+                return {"reason": "news", "children": report}, 0
+        if time.monotonic() >= deadline:
+            return {"reason": "timeout", "children": report}, EXIT_CODES["timeout"]
+        time.sleep(args.interval)
+
+
+def command_wait(args):
+    if args.children:
+        result, code = wait_children(args)
+    else:
+        result, code = wait_one(resolve(args.target), args)
+    print_json(result)
+    return code
+
+
+def command_label(args):
+    record = resolve(args.target)
+    if not rx_state.read_record(record["block_id"]):
+        if record["block_id"] != me():
+            raise RxError("not_found", f"{label(record)} was not started with rx run")
+        record.update({"name": os.environ.get("RX_NAME", ""), "parent": "", "outlive_parent": True,
+                       "created_at": now(), "fresh": False, "state": "live"})
+    labels = record.setdefault("labels", {})
+    for key, value in parse_labels(args.pairs).items():
+        if value:
+            labels[key] = value
+        else:
+            labels.pop(key, None)
+    rx_state.write_record(record)
+    print_json({"name": label(record), "labels": labels})
+    return 0
+
+
+def command_kill(args):
+    record = resolve(args.target)
+    rex("block", "close", "-s", record["session_id"], record["block_id"], check=False)
+    finish(record, {"killed": True})
+    print_json({"name": label(record), "state": "finished"})
+    return 0
+
+
+def command_rm(args):
+    record = resolve(args.target)
+    if is_live(record):
+        observation = observe(record)
+        if observation["exists"] and not observation.get("last_exit"):
+            raise RxError("live", f"{label(record)} is still running: rx kill it first")
+    rx_state.delete_record(record["block_id"])
+    print_json({"name": label(record), "removed": True})
+    return 0
+
+
+def clean(text):
+    return "".join(" " if ord(char) < 32 or 127 <= ord(char) < 160 else char for char in str(text))
+
+
+def command_decisions(_args):
+    lines = []
+    for record in sorted(live_records(), key=lambda item: item.get("name", "")):
+        labels = record.get("labels") or {}
+        decision = labels.get("decision")
+        if decision:
+            kind = "decision" if labels.get("decision-kind") == "decision" else "approval"
+            lines.append("\t".join([clean(label(record)), kind, clean(decision)[:200]]))
+    print("\n".join(lines) if lines else "no open decisions")
+    return 0
+
+
+def command_claude_session(args):
+    record = resolve(args.target)
+    observation = observe(record)
+    status = observation.get("status") or {}
+    if status.get("app") != "claude-code":
+        raise RxError("not_found", f"terminal {label(record)} is not claude")
+    pid = (status.get("owner") or {}).get("pid") or (observation.get("foreground") or {}).get("pid")
+    path = Path.home() / ".claude/sessions" / f"{pid}.json"
+    try:
+        session = json.loads(path.read_text())
+    except (OSError, ValueError):
+        raise RxError("not_found", f"session file for {label(record)} not found") from None
+    value = session.get("sessionId") if args.id else session.get("name")
+    if not value:
+        raise RxError("not_found", f"terminal {label(record)} has no session {'ID' if args.id else 'name'}")
+    print(value)
+    return 0
+
+
+def note(record, text):
+    parent = rx_state.read_record(record.get("parent") or "")
+    if not parent or not is_live(parent) or record.get("notify") is False:
+        return
+    parent.setdefault("pending_notes", []).append(f'<rx from="rx" about="{label(record)}">{text}</rx>')
+    rx_state.write_record(parent)
+
+
+def watch_record(record, observation):
+    if not observation["exists"] or observation.get("last_exit"):
+        exit_info = observation.get("last_exit")
+        finish(record, exit_info)
+        code = (exit_info or {}).get("exit_code")
+        detail = f"exited with code {code}" if code is not None else "exited"
+        note(record, f"{label(record)} {detail}. Read its report or run: rx read {label(record)}")
+        return
+    state = state_of(observation)
+    first_turn_pending(record, observation)
+    if state != record.get("last_state"):
+        record["last_state"] = state
+        rx_state.write_record(record)
+        if state in NEWS:
+            kind = (observation.get("status") or {}).get("kind")
+            reason = f" ({kind})" if kind else ""
+            note(record, f"{label(record)} is {state}{reason}. Read its screen: rx read {label(record)}")
+
+
+def orphaned(record):
+    parent_id = record.get("parent")
+    if not parent_id or record.get("outlive_parent"):
+        return False
+    parent = rx_state.read_record(parent_id)
+    return parent is not None and not is_live(parent)
+
+
+def flush_notes(record, streaks):
+    notes = record.get("pending_notes")
+    if not notes:
+        streaks.pop(record["block_id"], None)
+        return
+    is_ready, _ = ready(record)
+    streak = streaks.get(record["block_id"], 0) + 1 if is_ready else 0
+    streaks[record["block_id"]] = streak
+    if streak >= 2:
+        deliver(record, "\n".join(notes))
+        record["pending_notes"] = []
+        rx_state.write_record(record)
+        streaks.pop(record["block_id"], None)
+
+
+def watch_once(streaks):
+    records = live_records()
+    for record in records:
+        try:
+            if orphaned(record):
+                rex("block", "close", "-s", record["session_id"], record["block_id"], check=False)
+                finish(record, {"parent_ended": True})
+                continue
+            watch_record(record, observe(record))
+        except RxError as error:
+            print(f"{now()} rx watch: {label(record)}: {error}", file=sys.stderr, flush=True)
+    for record in live_records():
+        try:
+            flush_notes(record, streaks)
+        except RxError as error:
+            print(f"{now()} rx watch: notes for {label(record)}: {error}", file=sys.stderr, flush=True)
+    return bool(records)
+
+
+def command_watch(_args):
+    lock = rx_state.state_home() / "rx" / "watch.lock"
+    lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stream = lock.open("a")
+    try:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("rx watch: already running", file=sys.stderr)
+        return 0
+    streaks, quiet_since = {}, time.monotonic()
+    while True:
+        if watch_once(streaks):
+            quiet_since = time.monotonic()
+        elif time.monotonic() - quiet_since > WATCH_IDLE_EXIT:
+            return 0
+        time.sleep(WATCH_INTERVAL)
+
+
+def parser():
+    root = argparse.ArgumentParser(prog="rx", description="Run and watch agents in Rex terminals. See bin/rx.md.")
+    commands = root.add_subparsers(dest="command", required=True)
+
+    run = commands.add_parser("run", help="start a program in a new Rex terminal")
+    run.add_argument("--name", required=True)
+    run.add_argument("--cwd")
+    place = run.add_mutually_exclusive_group()
+    place.add_argument("--session", help="Rex session ID or label (default: your session)")
+    place.add_argument("--new-session", action="store_true", help="make a new session named --name")
+    run.add_argument("--label", action="append", default=[], metavar="KEY=VALUE")
+    run.add_argument("--outlive-parent", action="store_true")
+    run.add_argument("--no-notify", action="store_true")
+    run.add_argument("--focus", action="store_true")
+    run.add_argument("command", nargs=argparse.REMAINDER)
+    run.set_defaults(func=command_run)
+
+    listing = commands.add_parser("ls", help="list rx terminals")
+    listing.add_argument("--all", action="store_true")
+    listing.add_argument("--label", action="append", default=[], metavar="KEY=VALUE")
+    listing.set_defaults(func=command_ls)
+
+    for name, func in (("get", command_get), ("kill", command_kill), ("rm", command_rm)):
+        sub = commands.add_parser(name)
+        sub.add_argument("target", nargs="?")
+        sub.set_defaults(func=func)
+
+    read = commands.add_parser("read", help="print screen and history")
+    read.add_argument("target", nargs="?")
+    read.add_argument("--lines", type=int, default=200, help="last N lines; 0 prints all")
+    read.set_defaults(func=command_read)
+
+    send = commands.add_parser("send", help="paste text and press enter when the agent is ready")
+    send.add_argument("target")
+    send.add_argument("text")
+    send.add_argument("--raw", action="store_true", help="do not add the <rx from=...> tag")
+    send.add_argument("--force", action="store_true", help="send now, also to a blocked agent")
+    send.add_argument("--timeout", type=float, default=600)
+    send.add_argument("--interval", type=float, default=2)
+    send.set_defaults(func=command_send)
+
+    keys = commands.add_parser("keys", help="press keys: enter, esc, up, down, ctrl+c")
+    keys.add_argument("target")
+    keys.add_argument("keys", nargs="+")
+    keys.set_defaults(func=command_keys)
+
+    wait = commands.add_parser("wait", help="wait until a terminal stops working, or for your children")
+    wait.add_argument("target", nargs="?")
+    wait.add_argument("--children", choices=("any", "all"))
+    wait.add_argument("--output")
+    wait.add_argument("--timeout", type=float, default=180)
+    wait.add_argument("--interval", type=float, default=1)
+    wait.set_defaults(func=command_wait)
+
+    labels = commands.add_parser("label", help="set labels; key= removes one")
+    labels.add_argument("target")
+    labels.add_argument("pairs", nargs="+", metavar="KEY=VALUE")
+    labels.set_defaults(func=command_label)
+
+    commands.add_parser("decisions", help="list open decisions").set_defaults(func=command_decisions)
+
+    claude = commands.add_parser("claude-session", help="print the SendMessage address of a Claude terminal")
+    claude.add_argument("target")
+    claude.add_argument("--id", action="store_true")
+    claude.set_defaults(func=command_claude_session)
+
+    commands.add_parser("watch", help="send notes to parents; rx run starts it").set_defaults(func=command_watch)
+    return root
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except RxError as error:
+        print(json.dumps({"error": {"kind": error.kind, "message": str(error)}}), file=sys.stderr)
+        return EXIT_CODES.get(error.kind, 1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

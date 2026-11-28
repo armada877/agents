@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from io import StringIO
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+
+loader = SourceFileLoader("rx", str(Path(__file__).with_name("rx")))
+rx = module_from_spec(spec_from_loader(loader.name, loader))
+loader.exec_module(rx)
+state = rx.rx_state
+
+PARENT = "block:00000000-0000-0000-0000-00000000000a"
+CHILD = "block:00000000-0000-0000-0000-00000000000b"
+OTHER = "block:00000000-0000-0000-0000-00000000000c"
+
+
+def seen(state_name=None, exists=True, last_exit=None, app="probe", pid=None):
+    status = {"state": state_name, "app": app, "owner": {"pid": pid}} if state_name else None
+    return {"exists": exists, "status": status, "last_exit": last_exit, "foreground": {"pid": pid}}
+
+
+def record(block_id, name, **fields):
+    value = {"block_id": block_id, "session_id": "session:s", "name": name, "labels": {}, "state": "live",
+             "parent": "", "created_at": "2000-01-01T00:00:00+00:00", "fresh": False}
+    value.update(fields)
+    return value
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        environment = patch.dict(os.environ, {"XDG_STATE_HOME": folder.name, "REX_BLOCK": PARENT, "RX_NO_WATCH": "1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        sleep = patch.object(rx.time, "sleep")
+        sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def save(self, *records):
+        for item in records:
+            state.write_record(item)
+
+
+class InputTests(unittest.TestCase):
+    def test_placeholders_are_empty(self):
+        for text in ("Ask Codex to do anything", "Ask a follow-up question", 'Try "fix the bug"', ""):
+            with self.subTest(text=text):
+                self.assertTrue(rx.input_is_empty(f"output\n❯ {text}\nstatus"))
+
+    def test_typed_text(self):
+        self.assertFalse(rx.input_is_empty("› typed text\nstatus"))
+        self.assertFalse(rx.input_is_empty("› Ask Codex to do anything please"))
+
+    def test_last_input_line_is_used(self):
+        self.assertFalse(rx.input_is_empty("› Ask Codex to do anything\n› typed text"))
+        self.assertTrue(rx.input_is_empty("› typed text\n› Ask Codex to do anything"))
+
+    def test_no_input_line(self):
+        self.assertFalse(rx.input_is_empty("output only"))
+
+
+class StateTests(Base):
+    def test_record_round_trip_and_mode(self):
+        self.save(record(CHILD, "w-a", labels={"decision": "merge?"}))
+        path = state.record_path(CHILD)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(state.decision_pending(CHILD))
+        self.assertEqual(state.label_value(CHILD, "decision"), "merge?")
+
+    def test_invalid_block_ids(self):
+        for value in ("../x", "block:a/b", "", None, "block:" + "a" * 65):
+            with self.subTest(value=value):
+                self.assertIsNone(state.record_path(value))
+                self.assertIsNone(state.read_record(value))
+
+    def test_oversized_record_is_ignored(self):
+        path = state.record_path(CHILD)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"block_id": CHILD, "x": "a" * state.MAX_RECORD}))
+        self.assertIsNone(state.read_record(CHILD))
+
+
+class ResolveTests(Base):
+    def test_name_prefers_live_then_newest(self):
+        self.save(record(CHILD, "w-a", created_at="2001-01-01T00:00:00+00:00"),
+                  record(OTHER, "w-a", state="finished", created_at="2002-01-01T00:00:00+00:00"))
+        self.assertEqual(rx.resolve("w-a")["block_id"], CHILD)
+
+    def test_unknown_name(self):
+        with self.assertRaises(rx.RxError) as caught:
+            rx.resolve("w-none")
+        self.assertEqual(caught.exception.kind, "not_found")
+
+    def test_me(self):
+        self.save(record(PARENT, "o-a"))
+        self.assertEqual(rx.resolve("me")["name"], "o-a")
+        self.assertEqual(rx.resolve(None)["name"], "o-a")
+
+
+class SendTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.save(record(PARENT, "o-a"), record(CHILD, "w-a", parent=PARENT))
+        self.child = state.read_record(CHILD)
+
+    def test_tag_names_sender_and_reach(self):
+        text = rx.tagged(self.child, "do it", raw=False)
+        self.assertEqual(text, '<rx from="o-a" reach="rx send o-a when done or stuck">do it</rx>')
+        self.assertEqual(rx.tagged(self.child, "do it", raw=True), "do it")
+
+    def test_reply_to_parent_has_no_reach(self):
+        with patch.dict(os.environ, {"REX_BLOCK": CHILD}):
+            parent = state.read_record(PARENT)
+            self.assertEqual(rx.tagged(parent, "done", raw=False), '<rx from="w-a">done</rx>')
+
+    def test_unnamed_sender_uses_block_id(self):
+        with patch.dict(os.environ, {"REX_BLOCK": OTHER}):
+            self.assertIn(f'reach="rx send {OTHER}', rx.tagged(record(CHILD, "w", parent=OTHER), "x", raw=False))
+
+    def test_sends_after_two_ready_checks(self):
+        with (patch.object(rx, "observe", return_value=seen("idle")),
+              patch.object(rx, "capture", return_value="❯ "),
+              patch.object(rx, "deliver") as deliver):
+            rx.send_when_ready(self.child, "task", False, 60, 1)
+        deliver.assert_called_once_with(self.child, "task")
+
+    def test_waits_for_draft(self):
+        screens = iter(["❯ draft", "❯ draft", "❯ ", "❯ "])
+        with (patch.object(rx, "observe", return_value=seen("idle")),
+              patch.object(rx, "capture", side_effect=lambda _: next(screens)),
+              patch.object(rx, "deliver") as deliver):
+            rx.send_when_ready(self.child, "task", False, 60, 1)
+        deliver.assert_called_once()
+
+    def test_blocked_refuses_without_force(self):
+        with patch.object(rx, "observe", return_value=seen("blocked")), patch.object(rx, "capture", return_value=""), \
+                patch.object(rx, "deliver") as deliver:
+            with self.assertRaises(rx.RxError) as caught:
+                rx.send_when_ready(self.child, "task", False, 60, 1)
+            self.assertEqual(caught.exception.kind, "blocked")
+            rx.send_when_ready(self.child, "task", True, 60, 1)
+        deliver.assert_called_once()
+
+    def test_timeout(self):
+        clock = iter(range(0, 100, 5))
+        with (patch.object(rx, "observe", return_value=seen("working")),
+              patch.object(rx.time, "monotonic", side_effect=lambda: next(clock)),
+              patch.object(rx, "deliver") as deliver):
+            with self.assertRaises(rx.RxError) as caught:
+                rx.send_when_ready(self.child, "task", False, 10, 1)
+        self.assertEqual(caught.exception.kind, "timeout")
+        deliver.assert_not_called()
+
+    def test_plain_program_sends_at_once(self):
+        with patch.object(rx, "observe", return_value=seen(None)), patch.object(rx, "deliver") as deliver:
+            rx.send_when_ready(self.child, "ls", False, 60, 1)
+        deliver.assert_called_once()
+
+    def test_gone_target(self):
+        with patch.object(rx, "observe", return_value=seen(exists=False)):
+            with self.assertRaises(rx.RxError) as caught:
+                rx.send_when_ready(self.child, "x", False, 60, 1)
+        self.assertEqual(caught.exception.kind, "finished")
+
+
+class RunTests(Base):
+    def run_args(self, *extra, name="w-a"):
+        return SimpleNamespace(name=name, cwd="/tmp", session="session:s", new_session=False, label=["role=worker"],
+                               outlive_parent=False, no_notify=False, focus=False, command=["--", "claude", "go"],
+                               **dict(extra))
+
+    def test_run_passes_identity_and_saves_record(self):
+        out = StringIO()
+        with (patch.object(rx, "rex_json", return_value={"block_ids": [CHILD], "window_id": "window:w"}) as rex_json,
+              patch.object(rx, "api") as api, patch.object(sys, "stdout", out)):
+            self.assertEqual(rx.command_run(self.run_args()), 0)
+        command = rex_json.call_args.args
+        tail = list(command[command.index("--") + 1:])
+        self.assertEqual(tail, ["env", "RX_NAME=w-a", f"RX_PARENT={PARENT}", "RX_ROLE=worker", "claude", "go"])
+        self.assertIn("--focus=false", command)
+        api.assert_called_once()
+        saved = state.read_record(CHILD)
+        self.assertEqual((saved["parent"], saved["labels"], saved["fresh"]), (PARENT, {"role": "worker"}, True))
+        self.assertEqual(json.loads(out.getvalue())["block_id"], CHILD)
+
+    def test_one_string_is_a_shell_command(self):
+        args = self.run_args()
+        args.command = ["--", "cd app && npm test"]
+        with patch.object(rx, "rex_json", return_value={"block_ids": [CHILD]}) as rex_json, \
+                patch.object(rx, "api"), patch.object(sys, "stdout", StringIO()):
+            rx.command_run(args)
+        self.assertEqual(list(rex_json.call_args.args[-3:]), ["sh", "-c", "cd app && npm test"])
+
+    def test_live_name_is_taken(self):
+        self.save(record(OTHER, "w-a"))
+        with self.assertRaises(rx.RxError) as caught:
+            rx.command_run(self.run_args())
+        self.assertEqual(caught.exception.kind, "name_taken")
+
+    def test_bad_name(self):
+        for name in ("W-A", "-a", "a" * 33, "a/b"):
+            with self.subTest(name=name), self.assertRaises(rx.RxError):
+                rx.command_run(self.run_args(name=name))
+
+
+class WaitTests(Base):
+    def args(self, **fields):
+        values = {"target": "w-a", "children": None, "output": None, "timeout": 30, "interval": 1}
+        values.update(fields)
+        return SimpleNamespace(**values)
+
+    def test_returns_when_stopped(self):
+        item = record(CHILD, "w-a")
+        with patch.object(rx, "observe", side_effect=[seen("working"), seen("done")]):
+            result, code = rx.wait_one(item, self.args())
+        self.assertEqual((result["reason"], result["status"], code), ("status", "done", 0))
+
+    def test_first_turn_counts_as_working(self):
+        item = record(CHILD, "w-a", fresh=True, created_at=rx.now())
+        clock = iter(range(0, 100, 10))
+        with (patch.object(rx, "observe", return_value=seen("idle")),
+              patch.object(rx.time, "monotonic", side_effect=lambda: next(clock))):
+            result, code = rx.wait_one(item, self.args(timeout=25))
+        self.assertEqual((result["reason"], code), ("timeout", 124))
+
+    def test_exit(self):
+        with patch.object(rx, "observe", return_value=seen(exists=False)):
+            result, _ = rx.wait_one(record(CHILD, "w-a"), self.args())
+        self.assertEqual(result["reason"], "exit")
+
+    def test_output(self):
+        screens = iter(["", "", "ready"])
+        with (patch.object(rx, "observe", return_value=seen(None)),
+              patch.object(rx, "capture", side_effect=lambda _: next(screens))):
+            result, _ = rx.wait_one(record(CHILD, "w-a"), self.args(output="ready"))
+        self.assertEqual(result["reason"], "output")
+
+    def test_children_all_and_any(self):
+        self.save(record(CHILD, "w-a", parent=PARENT), record(OTHER, "w-b", parent=PARENT))
+        states = {CHILD: iter(["working", "working", "idle"]), OTHER: iter(["working", "idle", "idle"])}
+        with patch.object(rx, "observe", side_effect=lambda item: seen(next(states[item["block_id"]]))):
+            result, code = rx.wait_children(self.args(children="all"))
+        self.assertEqual((result["reason"], code), ("stopped", 0))
+        states = {CHILD: iter(["working", "working"]), OTHER: iter(["working", "idle"])}
+        with patch.object(rx, "observe", side_effect=lambda item: seen(next(states[item["block_id"]]))):
+            result, _ = rx.wait_children(self.args(children="any"))
+        self.assertEqual(result["reason"], "news")
+
+    def test_children_any_reports_blocked(self):
+        self.save(record(CHILD, "w-a", parent=PARENT))
+        with patch.object(rx, "observe", side_effect=[seen("working"), seen("blocked")]):
+            result, _ = rx.wait_children(self.args(children="any"))
+        self.assertEqual((result["reason"], result["children"][0]["status"]), ("news", "blocked"))
+
+    def test_no_children(self):
+        self.assertEqual(rx.wait_children(self.args(children="all"))[0]["reason"], "no_children")
+
+
+class WatchTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.save(record(PARENT, "o-a"), record(CHILD, "w-a", parent=PARENT))
+
+    def notes(self):
+        return state.read_record(PARENT).get("pending_notes", [])
+
+    def test_blocked_queues_one_note(self):
+        child = state.read_record(CHILD)
+        rx.watch_record(child, seen("blocked"))
+        rx.watch_record(state.read_record(CHILD), seen("blocked"))
+        self.assertEqual(len(self.notes()), 1)
+        self.assertIn("w-a is blocked", self.notes()[0])
+        self.assertTrue(self.notes()[0].startswith('<rx from="rx" about="w-a">'))
+
+    def test_exit_finishes_and_notes(self):
+        with patch.object(rx, "rex", return_value=SimpleNamespace(returncode=1, stdout="")):
+            rx.watch_record(state.read_record(CHILD), seen(exists=False))
+        self.assertEqual(state.read_record(CHILD)["state"], "finished")
+        self.assertIn("w-a exited", self.notes()[0])
+
+    def test_no_notify(self):
+        child = state.read_record(CHILD)
+        child["notify"] = False
+        rx.watch_record(child, seen("error"))
+        self.assertEqual(self.notes(), [])
+
+    def test_orphan_closes_unless_it_outlives(self):
+        parent = state.read_record(PARENT)
+        parent["state"] = "finished"
+        self.save(parent, record(OTHER, "o-b", parent=PARENT, outlive_parent=True))
+        self.assertTrue(rx.orphaned(state.read_record(CHILD)))
+        self.assertFalse(rx.orphaned(state.read_record(OTHER)))
+
+    def test_notes_wait_for_two_ready_checks(self):
+        parent = state.read_record(PARENT)
+        parent["pending_notes"] = ["a", "b"]
+        self.save(parent)
+        streaks = {}
+        with patch.object(rx, "ready", return_value=(True, seen("idle"))), patch.object(rx, "deliver") as deliver:
+            rx.flush_notes(state.read_record(PARENT), streaks)
+            deliver.assert_not_called()
+            rx.flush_notes(state.read_record(PARENT), streaks)
+        deliver.assert_called_once_with(unittest.mock.ANY, "a\nb")
+        self.assertEqual(self.notes(), [])
+
+
+class CommandTests(Base):
+    def test_label_set_and_clear(self):
+        self.save(record(CHILD, "w-a"))
+        with patch.object(sys, "stdout", StringIO()):
+            rx.command_label(SimpleNamespace(target="w-a", pairs=["decision=ship?", "decision-kind=approval"]))
+            self.assertTrue(state.decision_pending(CHILD))
+            rx.command_label(SimpleNamespace(target="w-a", pairs=["decision=", "decision-kind="]))
+        self.assertEqual(state.read_record(CHILD)["labels"], {})
+
+    def test_label_registers_only_own_block(self):
+        resolved = {"block_id": PARENT, "session_id": "session:s", "name": "", "labels": {}, "state": "live"}
+        with patch.object(rx, "resolve", return_value=dict(resolved)), patch.object(sys, "stdout", StringIO()):
+            rx.command_label(SimpleNamespace(target="me", pairs=["role=hypervisor"]))
+        self.assertEqual(state.label_value(PARENT, "role"), "hypervisor")
+        other = dict(resolved, block_id=OTHER)
+        with patch.object(rx, "resolve", return_value=other), self.assertRaises(rx.RxError):
+            rx.command_label(SimpleNamespace(target=OTHER, pairs=["role=x"]))
+
+    def test_decisions(self):
+        self.save(record(CHILD, "w-b", labels={"decision": "merge\x1b[31m?", "decision-kind": "decision"}),
+                  record(OTHER, "w-a", labels={"decision": "deploy?"}),
+                  record(PARENT, "o-a", state="finished", labels={"decision": "old"}))
+        out = StringIO()
+        with patch.object(sys, "stdout", out):
+            rx.command_decisions(None)
+        self.assertEqual(out.getvalue(), "w-a\tapproval\tdeploy?\nw-b\tdecision\tmerge [31m?\n")
+
+    def test_no_decisions(self):
+        out = StringIO()
+        with patch.object(sys, "stdout", out):
+            rx.command_decisions(None)
+        self.assertEqual(out.getvalue(), "no open decisions\n")
+
+    def test_claude_session(self):
+        self.save(record(CHILD, "o-a"))
+        home = Path(os.environ["XDG_STATE_HOME"])
+        (home / ".claude/sessions").mkdir(parents=True)
+        (home / ".claude/sessions/42.json").write_text(json.dumps({"name": "dark-motion", "sessionId": "abc"}))
+        out = StringIO()
+        with (patch.object(rx, "observe", return_value=seen("idle", app="claude-code", pid=42)),
+              patch.object(rx.Path, "home", return_value=home), patch.object(sys, "stdout", out)):
+            rx.command_claude_session(SimpleNamespace(target="o-a", id=False))
+            rx.command_claude_session(SimpleNamespace(target="o-a", id=True))
+        self.assertEqual(out.getvalue(), "dark-motion\nabc\n")
+
+    def test_claude_session_refuses_other_apps(self):
+        self.save(record(CHILD, "w-a"))
+        with patch.object(rx, "observe", return_value=seen("idle", app="codex")):
+            with self.assertRaises(rx.RxError):
+                rx.command_claude_session(SimpleNamespace(target="w-a", id=False))
+
+    def test_rm_refuses_live(self):
+        self.save(record(CHILD, "w-a"))
+        with patch.object(rx, "observe", return_value=seen("idle")):
+            with self.assertRaises(rx.RxError) as caught:
+                rx.command_rm(SimpleNamespace(target="w-a"))
+        self.assertEqual(caught.exception.kind, "live")
+
+    def test_errors_are_json_with_codes(self):
+        err = StringIO()
+        with patch.object(sys, "stderr", err):
+            code = rx.main(["get", "w-none"])
+        self.assertEqual(code, 3)
+        self.assertEqual(json.loads(err.getvalue())["error"]["kind"], "not_found")
+
+
+if __name__ == "__main__":
+    unittest.main()
