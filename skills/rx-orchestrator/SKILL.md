@@ -129,7 +129,7 @@ Watch workers with `rx wait --children any` in the background, or with
 On `blocked`, run `rx read <worker> --lines 200` and ask the user.
 The rx watcher also notes a blocked or exited worker.
 
-To message a Claude agent, use SendMessage to `rx claude-session <name>`.
+To message the hypervisor or a Claude agent, use SendMessage to `rx claude-session <name>`.
 Else, or on failure, use `rx send <name> "<text>"`. See `bin/rx.md`.
 
 ## Review and merge
