@@ -45,7 +45,9 @@ def state_file(path):
 
 
 def allow_file():
-    base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or ".")
+    if not base.is_absolute():
+        base = Path.home() / ".config"
     return Path(os.path.abspath(Path(base) / "hc/owner-guard-allow"))
 
 
@@ -54,6 +56,7 @@ def allowed_path(lexical, resolved, config):
         lines = config.read_text().splitlines()
     except (OSError, UnicodeError):
         return False
+    globs = []
     for line in lines:
         pattern = line.strip()
         if not pattern or pattern.startswith("#"):
@@ -62,13 +65,16 @@ def allowed_path(lexical, resolved, config):
             pattern = str(Path.home()) + pattern[1:]
         if not Path(pattern).is_absolute():
             continue
-        parts = Path(pattern).parts
-        for target in (lexical, resolved):
-            if len(target.parts) == len(parts) and all(
+        globs.append(Path(pattern).parts)
+    return all(
+        any(
+            len(target.parts) == len(parts) and all(
                 fnmatchcase(part, glob) for part, glob in zip(target.parts, parts)
-            ):
-                return True
-    return False
+            )
+            for parts in globs
+        )
+        for target in (lexical, resolved)
+    )
 
 
 def denial():
@@ -97,7 +103,7 @@ def decision(payload):
     target = inputs.get(field) if isinstance(inputs, dict) else None
     if not isinstance(target, str) or not target:
         return None
-    path = Path(target)
+    path = Path(os.path.expanduser(target))
     if not path.is_absolute():
         path = Path(payload.get("cwd") or os.getcwd()) / path
     lexical = Path(os.path.abspath(path))
