@@ -167,11 +167,18 @@ The goal is done when the user uses the result.
 4. Send the hypervisor one line:
    `<your name> finished: <goal>; <PR or merge>; open: <items>`.
    Find it with `rx ls --label role=hypervisor`.
+   Use SendMessage to the name from `rx claude-session <hypervisor>`.
+   Use `rx send <hypervisor> "<text>"` only if SendMessage fails.
 5. End your turn.
 
 Explain why you want to drop the goal.
 Get user approval before you drop the goal.
 
 Send new features and pivots to the hypervisor as new goals. Quote the user.
+Use SendMessage to the name from `rx claude-session <hypervisor>`.
+Use `rx send <hypervisor> "<text>"` only if SendMessage fails.
 
-Send clearly misrouted prompts unchanged to the hypervisor. Then ignore them.
+Send clearly misrouted prompts unchanged to the hypervisor.
+Use SendMessage to the name from `rx claude-session <hypervisor>`.
+Use `rx send <hypervisor> "<text>"` only if SendMessage fails.
+Then ignore the prompts.
