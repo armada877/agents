@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 
 import base64
+import fcntl
 import hashlib
 import importlib.machinery
 import importlib.util
 import json
 import os
+import pty
+import select
 from pathlib import Path
 import shutil
 import struct
 import subprocess
 import tempfile
+import termios
+import time
 import unittest
 from unittest.mock import patch
 import zlib
@@ -45,6 +50,9 @@ args = sys.argv[1:]
 (root / "rex").write_text("\\n".join(args) + "\\n")
 with (root / "rex-calls").open("a") as log:
     log.write(json.dumps(args) + "\\n")
+if args[:2] == ["block", "close"] and os.environ.get("CLOSE_MISSING"):
+    print("Error: block target not found", file=sys.stderr)
+    sys.exit(3)
 if os.environ.get("FAKE_EXIT") == "1" or args[0] == os.environ.get("FAIL_REX"):
     sys.exit(1)
 if args[0] in ("run", "split"):
@@ -182,6 +190,14 @@ class RxShowTests(unittest.TestCase):
         self.assertEqual(self.preview_state().read_text(), "block:old\n")
         self.assertEqual(list(self.preview_state().parent.glob("image.*.png")), [])
 
+    def test_missing_preview_record_is_replaced(self):
+        self.set_preview()
+        result = self.run_show(str(self.image), REX_BLOCK="block:caller", CLOSE_MISSING="1")
+        self.assertIn("opened a split", result.stderr)
+        self.assertEqual(self.calls()[0], ["block", "close", "block:old"])
+        self.assertEqual(self.calls()[1][0], "split")
+        self.assertEqual(self.preview_state().read_text(), "block:new\n")
+
     def test_failed_split_falls_back_to_tab(self):
         result = self.run_show(str(self.image), REX_BLOCK="block:stale", FAIL_REX="split")
         self.assertIn("opened a tab", result.stderr)
@@ -209,7 +225,8 @@ class RxShowTests(unittest.TestCase):
                 source.write_bytes(b"original bytes")
                 result = self.run_show(str(source))
                 self.assertIn("opened a tab", result.stderr)
-                self.assertEqual(self.recorded("converter"), ["-[0]", "-auto-orient", "png:-"])
+                format = "jpeg" if extension == "jpg" else extension
+                self.assertEqual(self.recorded("converter"), [f"{format}:-[0]", "-auto-orient", "png:-"])
                 self.assertEqual((self.records / "converter-input").read_bytes(), b"original bytes")
 
     def isolated_path(self):
@@ -241,11 +258,12 @@ class RxShowTests(unittest.TestCase):
             env={**os.environ, "COLUMNS": "999"}, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        packets = result.stdout.rstrip(b"\n").split(b"\x1b\\")[:-1]
+        self.assertFalse(result.stdout.endswith(b"\n"))
+        packets = result.stdout.split(b"\x1b\\")[:-1]
         encoded = []
         for index, packet in enumerate(packets):
             header, part = packet.split(b";", 1)
-            prefix = b"\x1b_Gf=100,a=T,c=80,r=24," if index == 0 else b"\x1b_G"
+            prefix = b"\x1b_Gf=100,a=T,C=1," if index == 0 else b"\x1b_G"
             more = int(index < len(packets) - 1)
             self.assertEqual(header, prefix + f"m={more}".encode())
             self.assertLessEqual(len(part), 4096)
@@ -262,9 +280,56 @@ class RxShowTests(unittest.TestCase):
             with patch.dict(os.environ, {"COLUMNS": "999"}):
                 pane = module.pane_size()
         self.assertEqual(pane, (30, 100, 1000, 600))
-        self.assertEqual(module.image_cells(png_data(100, 100), pane), (10, 5))
-        self.assertEqual(module.image_cells(png_data(100, 1200), pane), (5, 30))
-        self.assertEqual(module.image_cells(png_data(2000, 400), pane), (100, 10))
+        self.assertEqual(module.image_size_key(png_data(100, 100), pane), "")
+        self.assertEqual(module.image_size_key(png_data(100, 1200), pane), "r=30,")
+        self.assertEqual(module.image_size_key(png_data(2000, 400), pane), "c=100,")
+        self.assertEqual(module.image_size_key(png_data(100, 1200), (30, 100, 0, 0)), "")
+        self.assertEqual(module.image_size_key(png_data(2000, 400), (30, 100, 0, 0)), "c=100,")
+
+    def test_kitty_redraws_on_terminal_resize(self):
+        for width, height, initial_key in ((900, 1600, b"r=30,"), (100, 100, b"")):
+            with self.subTest(width=width, height=height):
+                self.image.write_bytes(png_data(width, height))
+                master, slave = pty.openpty()
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 1000, 600))
+
+                def attach_terminal():
+                    os.setsid()
+                    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+                process = subprocess.Popen(
+                    [str(RX_SHOW.with_name("rx-show-kitty")), "--remove", str(self.image)],
+                    stdin=slave, stdout=slave, stderr=slave, preexec_fn=attach_terminal,
+                )
+                os.close(slave)
+
+                def read_draw():
+                    output = b""
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        ready, _, _ = select.select([master], [], [], 0.1)
+                        if ready:
+                            output += os.read(master, 65536)
+                            if b"m=0;" in output and output.endswith(b"\x1b\\"):
+                                return output
+                    self.fail(f"No complete draw: {output[:100]!r}")
+
+                try:
+                    first = read_draw()
+                    self.assertTrue(first.startswith(b"\x1b_Gf=100,a=T,C=1," + initial_key + b"m="))
+                    self.assertIsNone(process.poll())
+                    self.assertFalse(self.image.exists())
+                    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 5, 5, 50, 50))
+                    second = read_draw()
+                    prefix = b"\x1b_Ga=d\x1b\\\x1b[2J\x1b[H\x1b_Gf=100,a=T,C=1,"
+                    resized_key = b"r=5," if height > width else b"c=5,"
+                    self.assertTrue(second.startswith(prefix + resized_key + b"m="))
+                    self.assertNotIn(b"\n", second)
+                    self.assertIsNone(process.poll())
+                finally:
+                    process.terminate()
+                    process.wait(timeout=5)
+                    os.close(master)
 
     def test_missing_push_config_still_opens_window(self):
         result = self.run_show(str(self.doc))

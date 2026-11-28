@@ -2,9 +2,9 @@
 
 import base64
 import fcntl
-import math
 import os
 from pathlib import Path
+import signal
 import struct
 import sys
 import termios
@@ -26,20 +26,32 @@ def pane_size():
     return rows, columns, 0, 0
 
 
-def image_cells(data, pane):
+def image_size_key(data, pane):
     if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
         raise ValueError("invalid PNG")
     width, height = struct.unpack(">II", data[16:24])
     if not width or not height:
         raise ValueError("invalid PNG size")
     rows, columns, pixels_wide, pixels_high = pane
-    cell_width = pixels_wide / columns if pixels_wide >= columns else 8
-    cell_height = pixels_high / rows if pixels_high >= rows else 16
-    scale = min(1, columns * cell_width / width, rows * cell_height / height)
-    return (
-        max(1, math.floor(width * scale / cell_width)),
-        max(1, math.floor(height * scale / cell_height)),
-    )
+    if pixels_wide < columns or pixels_high < rows:
+        return f"c={columns}," if width > columns * 8 else ""
+    if width <= pixels_wide and height <= pixels_high:
+        return ""
+    if width * pixels_high >= height * pixels_wide:
+        return f"c={columns},"
+    return f"r={rows},"
+
+
+def draw(data, payload):
+    size_key = image_size_key(data, pane_size())
+    for start in range(0, len(payload), 4096):
+        part = payload[start:start + 4096]
+        more = int(start + 4096 < len(payload))
+        keys = f"f=100,a=T,C=1,{size_key}" if start == 0 else ""
+        sys.stdout.buffer.write(
+            b"\x1b_G" + f"{keys}m={more}".encode() + b";" + part + b"\x1b\\"
+        )
+    sys.stdout.flush()
 
 
 def show(path, remove=False):
@@ -48,17 +60,16 @@ def show(path, remove=False):
     finally:
         if remove:
             path.unlink(missing_ok=True)
-    columns, rows = image_cells(data, pane_size())
     payload = base64.standard_b64encode(data)
-    for start in range(0, len(payload), 4096):
-        part = payload[start:start + 4096]
-        more = int(start + 4096 < len(payload))
-        keys = f"f=100,a=T,c={columns},r={rows}," if start == 0 else ""
-        sys.stdout.buffer.write(
-            b"\x1b_G" + f"{keys}m={more}".encode() + b";" + part + b"\x1b\\"
-        )
-    sys.stdout.buffer.write(b"\n")
-    sys.stdout.flush()
+    resize_signals = {signal.SIGWINCH}
+    signal.pthread_sigmask(signal.SIG_BLOCK, resize_signals)
+    draw(data, payload)
+    if not sys.stdout.isatty():
+        return
+    while True:
+        signal.sigwait(resize_signals)
+        sys.stdout.buffer.write(b"\x1b_Ga=d\x1b\\\x1b[2J\x1b[H")
+        draw(data, payload)
 
 
 if __name__ == "__main__":
@@ -70,5 +81,7 @@ if __name__ == "__main__":
         sys.exit("Usage: rx-show-kitty [--remove] <PNG>")
     try:
         show(Path(args[0]), remove)
+    except KeyboardInterrupt:
+        pass
     except (OSError, ValueError, struct.error):
         sys.exit("rx-show-kitty: could not display the PNG")

@@ -56,7 +56,7 @@ run `hc-sandbox --help`.
 
 ## Decide, then report
 
-Record reversible task choices under `## Decisions`.
+Make reversible choices within the task. Record them under `## Decisions`.
 Stop and report `needs-input` only for scope, goals, wider access,
 accepted risks, deploys, or actions you cannot undo.
 Put questions in your report for your owner.
@@ -67,7 +67,7 @@ or prompt other agents. Do not change the Rex layout.
 
 ## Report
 
-Replace the report at the path in your first prompt:
+Replace the report named in your first prompt:
 
 ```markdown
 # <worker-name> report

@@ -63,7 +63,7 @@ not standing rules.
 1. Write the goal in one sentence, in the user's words.
 2. Have the build worker make a rough version fast. Run it in
    `hc-sandbox`. Get one screenshot or one run output.
-3. Use [rx-show](../../bin/rx-show.md), not `chafa`. Ask "Approve or deny?" Give the path or
+3. Show it with [`rx-show <file>`](../../bin/rx-show.md). Ask "Approve or deny?" Give the path or
    `hc-sandbox up --publish` URL.
 4. Start no review before this answer, unless the work uses real data.
 
@@ -157,7 +157,7 @@ Before planning host changes, read the system store named in
 
 ## Finish
 
-The goal is done when the user uses the result.
+Finish when the user uses the result.
 
 1. Stop each worker: `rx kill <worker>`, then `rx rm <worker>`. For Codex,
    record `rx get <worker> | jq .foreground.pid` first. After the

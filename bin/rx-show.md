@@ -16,16 +16,23 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
    the doc to the user's phone.
 
 `rx-show` converts the image to a temporary PNG before it closes or opens any block.
-It reads the source bytes through stdin, selects the first frame, and applies EXIF orientation.
+It reads source bytes through stdin, selects the first frame, and applies EXIF orientation.
+The file extension selects the input format: PNG, JPEG, GIF, or WebP.
 It uses `magick`, or `convert` when `magick` is absent.
 A bad image or missing converter prints one error line and leaves the current preview open.
 
 `rx-show-kitty` sends the PNG with the Kitty graphics protocol.
-It sends `f=100,a=T,c=<columns>,r=<rows>` in chunks of 4096 base64 bytes.
+It sends `f=100,a=T,C=1` in chunks of 4096 base64 bytes.
+It adds only `c=<columns>` when width limits the image, or only `r=<rows>` when height limits it.
 The last chunk can be shorter.
 The helper reads its terminal cell and pixel dimensions with `TIOCGWINSZ`. It ignores `COLUMNS` and `LINES`.
-It fits the image within the pane and limits enlargement to whole cells.
-When pixel dimensions are absent, it assumes cells of 8 × 16 pixels.
+It sends no size key when the image fits at its natural size.
+When pixel dimensions are absent, it uses an 8-pixel cell width estimate for width limits only.
+It never uses an estimated height limit.
+`C=1` keeps the cursor in place. The helper sends no trailing newline.
+The helper draws once at startup and stays alive inside the terminal.
+On `SIGWINCH`, it deletes the image, clears the pane, and draws with the new size.
+When output goes to a pipe, the helper draws once and exits.
 The helper removes the temporary PNG after it reads the bytes.
 
 Install `python3`, ImageMagick, and `flock` where `rx-show` runs.
@@ -34,8 +41,8 @@ The Rex terminal must access the helper and temporary PNG. It must support Kitty
 Each caller has a file under `${XDG_RUNTIME_DIR:-/tmp}/rx-show/` that records its preview block ID.
 The file name uses a hash of `REX_BLOCK`. A lock serializes previews from the same caller.
 Labels remain `<file name> preview`; labels do not control which block closes.
-A failed close prints one error line and leaves the recorded ID unchanged.
-If you close a preview yourself, remove its record before the next preview.
+A close that reports `not found` removes the old record and continues.
+Other close failures print one error line and leave the recorded ID unchanged.
 
 A successful open prints the block ID to stderr.
 This confirms block creation. It does not confirm that the terminal rendered the image.
