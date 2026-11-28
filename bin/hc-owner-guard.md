@@ -9,7 +9,8 @@ The hook does not replace the owner skill rules.
 The program reads one JSON object from standard input. It reads
 `hook_event_name`, `tool_name`, `tool_input`, and `cwd`.
 `Edit` and `Write` use `file_path`. `NotebookEdit` uses `notebook_path`.
-The guard expands `~` in target paths with `os.path.expanduser`.
+The guard expands a target only when it equals `~` or starts with `~/`.
+It keeps `~user` as a literal path part.
 Relative paths use `cwd`, or the process directory when `cwd` is absent.
 
 The program reads the terminal from `HC_TERMINAL_ID`. It uses `hc_label.py`

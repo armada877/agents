@@ -164,6 +164,9 @@ class GuardTests(unittest.TestCase):
             self.denied(self.invoke(self.repo / "unlisted.md"))
             self.denied(self.invoke(self.allow))
 
+    def test_target_named_home_stays_relative(self):
+        self.denied(self.invoke("~nobody/new"))
+
     def test_target_home_expansion(self):
         with patch.dict(os.environ, {"HOME": str(self.repo), "XDG_CONFIG_HOME": ""}):
             self.denied(self.invoke("~/.config/hc/owner-guard-allow", cwd=str(self.root)))

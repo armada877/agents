@@ -103,7 +103,9 @@ def decision(payload):
     target = inputs.get(field) if isinstance(inputs, dict) else None
     if not isinstance(target, str) or not target:
         return None
-    path = Path(os.path.expanduser(target))
+    if target == "~" or target.startswith("~/"):
+        target = os.path.expanduser(target)
+    path = Path(target)
     if not path.is_absolute():
         path = Path(payload.get("cwd") or os.getcwd()) / path
     lexical = Path(os.path.abspath(path))
