@@ -5,20 +5,27 @@ for it. An owner runs it at intake, before it asks "Approve or deny?".
 
 ## What it does
 
-1. It opens the file in a new Rex tab, beside the agent. The command is
-   `rex run --focus=false --keep-open --label "rx-show · <file name>"`.
-   The tab stays open after the viewer exits. Focus does not move.
-   - A Markdown file opens in `glow -t`.
-   - An image (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) opens in `chafa`.
-     Install `chafa` on the machine that runs Rex.
-   - Other files open in `less`.
+1. It opens the file in Rex. Focus does not move. The viewer stays open after its command exits.
+   - A Markdown file opens in a new tab with `glow -t`.
+   - An image (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) opens in a right split beside `$REX_BLOCK`.
+     The split takes 60 percent of the space. Its label is `rx-show · <file name>`.
+     An earlier block with that label in the caller's session closes first. The caller stays open.
+     Without `REX_BLOCK`, the image opens in a new tab with `rex run`.
+   - Other files open in a new tab with `less`.
 2. For a Markdown file, it runs the push command. The push command sends
    the doc to the user's phone.
 
-The tab opens in the Rex session of the caller. Outside Rex, `rex` picks the
-session. `[unverified]`
+`rx-show-kitty` sends images with the Kitty graphics protocol.
+It sends PNG bytes with `f=100,a=T,c=<columns>` in chunks of 4096 base64 bytes.
+The last chunk can be shorter. The helper reads the pane width in cells.
+PNG files pass through directly. ImageMagick converts other formats to PNG.
+For animated files, the helper shows the first frame.
+Install `python3`, `magick`, and `jq` on the machine that runs Rex.
+The terminal must support Kitty graphics.
 
-A failed tab or a failed push prints one line to stderr. It does not stop
+A successful open prints the block ID to stderr.
+
+A failed viewer or a failed push prints one line to stderr. It does not stop
 the other step. `rx-show` exits 0 after it starts. It exits 1 for a missing
 file.
 
@@ -38,7 +45,7 @@ the page link in the `Click` header.
 
 ## Settings
 
-- `RX_SHOW_WINDOW=0`: do not open a tab.
+- `RX_SHOW_WINDOW=0`: do not open a viewer.
 - `RX_SHOW_PUSH=0`: do not send a push.
 
 ## Checks

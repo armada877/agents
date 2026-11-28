@@ -27,8 +27,6 @@ is_image() {
 viewer() {
   if is_markdown; then
     echo glow -t
-  elif is_image; then
-    echo chafa
   else
     echo less
   fi
@@ -36,12 +34,39 @@ viewer() {
 
 open_window() {
   local label="rx-show · $file_name"
-  local -a view
-  read -ra view <<<"$(viewer)"
-  if rex run --focus=false --keep-open --label "$label" -- "${view[@]}" "$source_file" >/dev/null; then
-    echo "rx-show: opened a tab: $label" >&2
+  local -a view command
+  local session old_blocks old opened
+  if is_image; then
+    view=("$(dirname "$(realpath "$0")")/rx-show-kitty")
   else
-    echo "rx-show: could not open a tab" >&2
+    read -ra view <<<"$(viewer)"
+  fi
+  if is_image && [[ -n ${REX_BLOCK:-} ]]; then
+    if ! session="$(rex block inspect "$REX_BLOCK" | awk '/^session:/ {print $2}')" || [[ -z $session ]]; then
+      echo "rx-show: could not find the caller session" >&2
+      return 0
+    fi
+    if ! old_blocks="$(rex block ls -s "$session" --json | jq -r --arg label "$label" --arg anchor "$REX_BLOCK" '.blocks[] | select(.label == $label and .block_id != $anchor) | .block_id')"; then
+      echo "rx-show: could not find earlier splits" >&2
+      return 0
+    fi
+    while IFS= read -r old; do
+      [[ -n $old ]] || continue
+      if ! rex block close "$old" >/dev/null; then
+        echo "rx-show: could not close an earlier split" >&2
+        return 0
+      fi
+    done <<<"$old_blocks"
+    command=(rex split -b "$REX_BLOCK" --split=right --ratio 60)
+    opened=split
+  else
+    command=(rex run)
+    opened=tab
+  fi
+  if old="$("${command[@]}" --focus=false --keep-open --label "$label" -- "${view[@]}" "$source_file")"; then
+    echo "rx-show: opened a $opened: $label ($old)" >&2
+  else
+    echo "rx-show: could not open a $opened" >&2
   fi
 }
 
