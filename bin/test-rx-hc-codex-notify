@@ -18,9 +18,15 @@ class NotifyTests(unittest.TestCase):
         self.bin.mkdir()
         self.path = self.root / "path"
         self.path.mkdir()
+        self.home = self.root / "home"
+        self.local_bin = self.home / ".local/bin"
+        self.local_bin.mkdir(parents=True)
         self.wrapper = self.bin / "rx-hc-codex-notify"
         shutil.copy2(Path(__file__).with_name(self.wrapper.name), self.wrapper)
-        self.env = {**os.environ, "PATH": str(self.path), "NOTIFY_TEST": "sample"}
+        self.env = {
+            **os.environ, "HOME": str(self.home),
+            "PATH": str(self.path), "NOTIFY_TEST": "sample",
+        }
 
     def hook(self, legacy=False, code=0, peer=None):
         name = "hc-codex-notify" if legacy else "rx-codex-notify"
@@ -74,6 +80,42 @@ class NotifyTests(unittest.TestCase):
         result = self.run_wrapper()
         self.assertIn("rx-codex-notify:out", result.stdout)
         self.assertIn("hc-codex-notify:out", result.stdout)
+
+    def test_legacy_home_fallback(self):
+        self.hook()
+        hook = self.hook(legacy=True)
+        hook.rename(self.local_bin / hook.name)
+        self.assertNotIn(str(self.local_bin), self.env["PATH"].split(os.pathsep))
+        args = ["fallback payload"]
+        result = self.run_wrapper(args)
+        self.assertIn("hc-codex-notify:out", result.stdout)
+        self.assertEqual(
+            json.loads((self.root / "hc-codex-notify").read_text()),
+            [args, "sample"],
+        )
+
+    def test_legacy_home_fallback_not_executable(self):
+        self.hook()
+        hook = self.hook(legacy=True)
+        fallback = hook.rename(self.local_bin / hook.name)
+        fallback.chmod(0o644)
+        result = self.run_wrapper()
+        self.assertEqual(result.stdout, "rx-codex-notify:out\n")
+        self.assertFalse((self.root / "hc-codex-notify").exists())
+
+    def test_legacy_path_takes_precedence(self):
+        self.hook(legacy=True).rename(self.local_bin / "hc-codex-notify")
+        hook = self.hook(legacy=True)
+        hook.write_text("#!/usr/bin/python3\nprint('path hook')\n")
+        self.assertEqual(self.run_wrapper().stdout, "path hook\n")
+
+    def test_legacy_launch_error(self):
+        self.hook()
+        hook = self.hook(legacy=True)
+        hook.write_text("invalid executable\n")
+        result = self.run_wrapper()
+        self.assertEqual(result.stdout, "rx-codex-notify:out\n")
+        self.assertEqual(result.stderr, "rx-codex-notify:err\n")
 
     def test_launch_errors(self):
         self.hook(legacy=True)
